@@ -1,0 +1,26 @@
+{
+  "name": "sratchpad",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "tests/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,ops,sales,studio,viewer -c blue,green,magenta,yellow,cyan \"npm run dev -w @yourorg/bi-api\" \"npm run dev -w @yourorg/host-ops\" \"npm run dev -w @yourorg/host-sales\" \"npm run dev -w @yourorg/studio\" \"npm run dev -w @yourorg/viewer\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @yourorg/bi-api",
+    "db:seed": "npm run db:seed -w @yourorg/bi-api"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "concurrently": "9.1.0",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}

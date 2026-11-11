@@ -1,0 +1,38 @@
+{
+  "specVersion": "1.0",
+  "id": "dash_9f2a",
+  "title": "Sales overview",
+  "dataSources": {
+    "orders": { "type": "snowflake", "ref": "ANALYTICS.PUBLIC.ORDERS" }
+  },
+  "queries": {
+    "q_rev_by_month": {
+      "source": "orders",
+      "dimensions": [{ "field": "order_date", "grain": "month" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "order_date", "dir": "asc" }],
+      "limit": 1000
+    }
+  },
+  "widgets": {
+    "w_line": {
+      "type": "line-chart",
+      "query": "q_rev_by_month",
+      "encoding": { "x": "order_date", "y": "revenue" },
+      "options": { "title": "Revenue by month", "format": { "y": "currency" } }
+    },
+    "w_kpi": {
+      "type": "kpi",
+      "query": "q_rev_by_month",
+      "options": { "reduce": "sum", "field": "revenue", "label": "Total revenue" }
+    }
+  },
+  "layout": [
+    { "i": "w_kpi",  "x": 0, "y": 0, "w": 3, "h": 2 },
+    { "i": "w_line", "x": 3, "y": 0, "w": 9, "h": 4 }
+  ],
+  "params": {
+    "dateRange": { "type": "daterange", "default": "last_90d", "bind": ["q_rev_by_month.filters"] }
+  }
+}

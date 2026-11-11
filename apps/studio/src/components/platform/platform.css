@@ -1,0 +1,20 @@
+/* Platform dialogs and list additions (workstream D). */
+.platform-actions { display: inline-flex; }
+.platform-list { list-style: none; margin: 6px 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.platform-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--s-border); border-radius: 8px; }
+.platform-list li .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.platform-list textarea, .platform-form textarea { width: 100%; font: inherit; border: 1px solid var(--s-border-strong); border-radius: 8px; padding: 6px 8px; }
+.comment-body { margin: 2px 0 0; white-space: pre-wrap; }
+.platform-form { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin: 8px 0 14px; }
+.platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.platform-grid input, .platform-grid select { width: 100%; }
+.platform-checks { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.badge { font-size: 11px; border-radius: 999px; padding: 0 6px; border: 1px solid var(--s-border-strong); }
+.badge.state-firing { background: #fde7e7; border-color: #e5a0a0; }
+.badge.state-ok { background: #e6f4ea; border-color: #9fcfaf; }
+.dash-list .dash-row { display: flex; align-items: center; gap: 6px; }
+.dash-list .dash-row > button:first-child { flex: 1; }
+.star { font-size: 16px; line-height: 1; background: transparent; border: 0; cursor: pointer; color: var(--s-text-3); padding: 4px 6px; }
+.star[aria-pressed='true'] { color: #d4a000; }
+.list-tools { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
+@media (max-width: 640px) { .platform-grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,104 @@
+{
+  "specVersion": "1.0",
+  "id": "dash_9f2a",
+  "title": "Sales overview",
+  "description": "Paid revenue, orders and mix. Hand-written for the Phase 1 exit criterion: renders identically in two host apps.",
+  "dataSources": {
+    "orders": { "type": "sample", "ref": "orders" }
+  },
+  "queries": {
+    "q_rev_by_month": {
+      "source": "orders",
+      "dimensions": [{ "field": "order_date", "grain": "month" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "order_date", "dir": "asc" }],
+      "limit": 1000
+    },
+    "q_totals": {
+      "source": "orders",
+      "measures": [
+        { "field": "order_id", "agg": "count_distinct", "as": "orders" },
+        { "field": "amount", "agg": "avg", "as": "avg_order_value" }
+      ],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }]
+    },
+    "q_rev_by_region": {
+      "source": "orders",
+      "dimensions": [{ "field": "region" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "revenue", "dir": "desc" }]
+    },
+    "q_by_category": {
+      "source": "orders",
+      "dimensions": [{ "field": "category" }],
+      "measures": [
+        { "field": "order_id", "agg": "count_distinct", "as": "orders" },
+        { "field": "amount", "agg": "sum", "as": "revenue" },
+        { "field": "amount", "agg": "avg", "as": "avg_order_value" }
+      ],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "revenue", "dir": "desc" }]
+    }
+  },
+  "widgets": {
+    "w_kpi": {
+      "type": "kpi",
+      "query": "q_rev_by_month",
+      "options": { "reduce": "sum", "field": "revenue", "label": "Total revenue", "format": "currency" }
+    },
+    "w_orders": {
+      "type": "kpi",
+      "query": "q_totals",
+      "options": { "field": "orders", "label": "Paid orders", "format": "integer" }
+    },
+    "w_aov": {
+      "type": "kpi",
+      "query": "q_totals",
+      "options": { "field": "avg_order_value", "label": "Average order value", "format": "currency" }
+    },
+    "w_line": {
+      "type": "line-chart",
+      "query": "q_rev_by_month",
+      "encoding": { "x": "order_date", "y": "revenue" },
+      "options": { "title": "Revenue by month", "format": { "y": "currency" } }
+    },
+    "w_region": {
+      "type": "bar-chart",
+      "query": "q_rev_by_region",
+      "encoding": { "x": "region", "y": "revenue" },
+      "options": { "title": "Revenue by region", "format": { "y": "currency" }, "orientation": "horizontal" }
+    },
+    "w_table": {
+      "type": "table",
+      "query": "q_by_category",
+      "options": {
+        "title": "By category",
+        "columns": [
+          { "field": "category", "label": "Category" },
+          { "field": "orders", "label": "Orders", "format": "integer" },
+          { "field": "revenue", "label": "Revenue", "format": "currency" },
+          { "field": "avg_order_value", "label": "Avg. order", "format": "currency" }
+        ]
+      }
+    }
+  },
+  "layout": [
+    { "i": "w_kpi", "x": 0, "y": 0, "w": 4, "h": 2 },
+    { "i": "w_orders", "x": 4, "y": 0, "w": 4, "h": 2 },
+    { "i": "w_aov", "x": 8, "y": 0, "w": 4, "h": 2 },
+    { "i": "w_line", "x": 0, "y": 2, "w": 8, "h": 5 },
+    { "i": "w_region", "x": 8, "y": 2, "w": 4, "h": 5 },
+    { "i": "w_table", "x": 0, "y": 7, "w": 12, "h": 4 }
+  ],
+  "params": {
+    "dateRange": {
+      "type": "daterange",
+      "label": "Date range",
+      "field": "order_date",
+      "default": "last_365d",
+      "bind": ["q_rev_by_month.filters", "q_totals.filters", "q_rev_by_region.filters", "q_by_category.filters"]
+    }
+  }
+}

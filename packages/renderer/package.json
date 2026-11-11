@@ -1,0 +1,43 @@
+{
+  "name": "@yourorg/bi-renderer",
+  "version": "0.1.0",
+  "description": "Drop-in React renderer for JSON dashboards: <Dashboard id token />.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": ">=18.2 <20",
+    "react-dom": ">=18.2 <20"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "3.10.9",
+    "@yourorg/bi-spec": "*",
+    "d3-geo": "3.1.1",
+    "d3-hierarchy": "3.1.2",
+    "d3-sankey": "0.12.3",
+    "recharts": "2.15.0",
+    "topojson-client": "3.1.0",
+    "us-atlas": "3.0.1",
+    "world-atlas": "2.0.2"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.1.0",
+    "@types/d3-geo": "3.1.1",
+    "@types/d3-hierarchy": "3.1.7",
+    "@types/d3-sankey": "0.12.5",
+    "@types/geojson": "7946.0.16",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/topojson-client": "3.1.5",
+    "@types/topojson-specification": "1.0.5",
+    "jsdom": "25.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Georgia, 'Times New Roman', serif; background: #f3f2ee; color: #222; }
+.ops-shell { display: flex; min-height: 100vh; }
+.ops-sidebar { width: 200px; flex: none; background: #1f2421; color: #d9ddd6; padding: 20px 14px; }
+.ops-brand { font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 13px; margin-bottom: 24px; color: #fff; }
+.ops-sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+.ops-sidebar a { padding: 8px 10px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+.ops-sidebar a.active { background: #39413b; color: #fff; }
+.ops-main { flex: 1; min-width: 0; padding: 20px 28px 40px; }
+.ops-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 14px; }
+.ops-crumb { color: #6b6f68; }
+.ops-toolbar select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid #c9c8c2; background: #fff; }
+@media (max-width: 720px) { .ops-sidebar { display: none; } .ops-main { padding: 16px; } }

@@ -1,0 +1,108 @@
+{
+  "specVersion": "1.1",
+  "id": "ops_mix",
+  "title": "Order mix",
+  "description": "Where paid revenue comes from: channel, category, region and customer. Shows off the spec 1.1 widget types.",
+  "dataSources": {
+    "orders": { "type": "sample", "ref": "orders" }
+  },
+  "queries": {
+    "q_rev_by_channel": {
+      "source": "orders",
+      "dimensions": [{ "field": "order_date", "grain": "month" }, { "field": "channel" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "order_date", "dir": "asc" }, { "field": "channel", "dir": "asc" }]
+    },
+    "q_category_share": {
+      "source": "orders",
+      "dimensions": [{ "field": "category" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "revenue", "dir": "desc" }]
+    },
+    "q_region_category": {
+      "source": "orders",
+      "dimensions": [{ "field": "region" }, { "field": "category" }],
+      "measures": [{ "field": "amount", "agg": "sum", "as": "revenue" }],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "region", "dir": "asc" }, { "field": "category", "dir": "asc" }]
+    },
+    "q_customers": {
+      "source": "orders",
+      "dimensions": [{ "field": "customer_id" }],
+      "measures": [
+        { "field": "order_id", "agg": "count_distinct", "as": "orders" },
+        { "field": "amount", "agg": "avg", "as": "avg_order_value" },
+        { "field": "amount", "agg": "sum", "as": "revenue" }
+      ],
+      "filters": [{ "field": "status", "op": "eq", "value": "paid" }],
+      "orderBy": [{ "field": "revenue", "dir": "desc" }],
+      "limit": 2000
+    }
+  },
+  "widgets": {
+    "w_intro": {
+      "type": "text",
+      "options": {
+        "title": "About this dashboard",
+        "text": "Paid orders only, filtered by the **date range** control.\n\n- *Revenue by channel* stacks Online, Partner and Direct each month.\n- The pivot is `region × category`; every chart has a table view."
+      }
+    },
+    "w_channel": {
+      "type": "area-chart",
+      "query": "q_rev_by_channel",
+      "encoding": { "x": "order_date", "y": "revenue", "series": "channel" },
+      "options": { "title": "Revenue by channel", "stacked": true, "format": { "y": "currency" } }
+    },
+    "w_share": {
+      "type": "pie",
+      "query": "q_category_share",
+      "encoding": { "category": "category", "value": "revenue" },
+      "options": { "title": "Category share of revenue", "format": "currency" }
+    },
+    "w_pivot": {
+      "type": "pivot",
+      "query": "q_region_category",
+      "encoding": { "rows": "region", "columns": "category", "value": "revenue" },
+      "options": { "title": "Revenue by region and category", "format": "currency", "columnOrder": "asc" }
+    },
+    "w_customers_scatter": {
+      "type": "scatter",
+      "query": "q_customers",
+      "encoding": { "x": "orders", "y": "avg_order_value", "size": "revenue", "label": "customer_id" },
+      "options": { "title": "Average order value vs orders, by customer", "format": { "x": "integer", "y": "currency", "size": "currency" } }
+    },
+    "w_customers": {
+      "type": "table",
+      "query": "q_customers",
+      "options": {
+        "title": "Customers",
+        "pagination": "scroll",
+        "columns": [
+          { "field": "customer_id", "label": "Customer" },
+          { "field": "orders", "label": "Orders", "format": "integer" },
+          { "field": "avg_order_value", "label": "Avg. order", "format": "currency" },
+          { "field": "revenue", "label": "Revenue", "format": "currency" }
+        ]
+      }
+    }
+  },
+  "layout": [
+    { "i": "w_intro", "x": 0, "y": 0, "w": 4, "h": 3 },
+    { "i": "w_channel", "x": 4, "y": 0, "w": 8, "h": 5 },
+    { "i": "w_share", "x": 0, "y": 3, "w": 4, "h": 5 },
+    { "i": "w_pivot", "x": 4, "y": 5, "w": 8, "h": 3 },
+    { "i": "w_customers_scatter", "x": 0, "y": 8, "w": 6, "h": 5 },
+    { "i": "w_customers", "x": 6, "y": 8, "w": 6, "h": 5 }
+  ],
+  "params": {
+    "dateRange": {
+      "type": "daterange",
+      "label": "Date range",
+      "field": "order_date",
+      "default": "last_365d",
+      "bind": ["q_rev_by_channel.filters", "q_category_share.filters", "q_region_category.filters", "q_customers.filters"]
+    }
+  }
+}

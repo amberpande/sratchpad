@@ -1,0 +1,604 @@
+{
+  "specVersion": "1.3",
+  "id": "viz_gallery",
+  "title": "Visual gallery",
+  "description": "Every spec 1.3 visual and formatting option on the sample orders data. Maps need geographic columns, so they are not in this sample.",
+  "dataSources": {
+    "orders": {
+      "type": "sample",
+      "ref": "orders"
+    }
+  },
+  "queries": {
+    "q_totals": {
+      "source": "orders",
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "avg",
+          "as": "aov"
+        },
+        {
+          "field": "order_id",
+          "agg": "count_distinct",
+          "as": "orders"
+        }
+      ],
+      "filters": [
+        {
+          "field": "status",
+          "op": "eq",
+          "value": "paid"
+        }
+      ]
+    },
+    "q_month": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "order_date",
+          "grain": "month"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        },
+        {
+          "field": "order_id",
+          "agg": "count_distinct",
+          "as": "orders"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "order_date",
+          "dir": "asc"
+        }
+      ]
+    },
+    "q_month_region": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "order_date",
+          "grain": "month"
+        },
+        {
+          "field": "region"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "order_date",
+          "dir": "asc"
+        }
+      ]
+    },
+    "q_region_cat": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "region"
+        },
+        {
+          "field": "category"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ]
+    },
+    "q_channel": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "channel"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "revenue",
+          "dir": "desc"
+        }
+      ]
+    },
+    "q_status": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "status"
+        }
+      ],
+      "measures": [
+        {
+          "field": "order_id",
+          "agg": "count_distinct",
+          "as": "orders"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "orders",
+          "dir": "desc"
+        }
+      ]
+    },
+    "q_flow": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "channel"
+        },
+        {
+          "field": "region"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ]
+    },
+    "q_region": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "region"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "revenue",
+          "dir": "desc"
+        }
+      ]
+    },
+    "q_stats": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "category"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "min",
+          "as": "lo"
+        },
+        {
+          "field": "amount",
+          "agg": "p25",
+          "as": "q1"
+        },
+        {
+          "field": "amount",
+          "agg": "median",
+          "as": "med"
+        },
+        {
+          "field": "amount",
+          "agg": "p75",
+          "as": "q3"
+        },
+        {
+          "field": "amount",
+          "agg": "max",
+          "as": "hi"
+        }
+      ]
+    },
+    "q_cat_month": {
+      "source": "orders",
+      "dimensions": [
+        {
+          "field": "category"
+        },
+        {
+          "field": "order_date",
+          "grain": "month"
+        }
+      ],
+      "measures": [
+        {
+          "field": "amount",
+          "agg": "sum",
+          "as": "revenue"
+        }
+      ],
+      "orderBy": [
+        {
+          "field": "order_date",
+          "dir": "asc"
+        }
+      ]
+    }
+  },
+  "widgets": {
+    "w_aov": {
+      "type": "kpi",
+      "query": "q_totals",
+      "options": {
+        "field": "aov",
+        "label": "Average paid order",
+        "format": "currency",
+        "thresholds": [
+          {
+            "op": "lt",
+            "value": 1500,
+            "color": "#d03b3b"
+          },
+          {
+            "op": "gte",
+            "value": 1500,
+            "color": "#1f8a4c"
+          }
+        ]
+      }
+    },
+    "w_orders": {
+      "type": "kpi",
+      "query": "q_totals",
+      "options": {
+        "field": "orders",
+        "label": "Paid orders",
+        "numberFormats": {
+          "orders": {
+            "scale": "auto",
+            "decimals": 1
+          }
+        }
+      }
+    },
+    "w_gauge": {
+      "type": "gauge",
+      "query": "q_totals",
+      "options": {
+        "field": "aov",
+        "label": "AOV vs target",
+        "max": 3000,
+        "target": 2000,
+        "format": "currency",
+        "bands": [
+          {
+            "to": 1500,
+            "color": "#e34948"
+          },
+          {
+            "to": 2000,
+            "color": "#eda100"
+          },
+          {
+            "to": 3000,
+            "color": "#1baf7a"
+          }
+        ]
+      }
+    },
+    "w_combo": {
+      "type": "combo",
+      "query": "q_month",
+      "encoding": {
+        "x": "order_date",
+        "bars": "revenue",
+        "lines": "orders"
+      },
+      "options": {
+        "title": "Revenue (bars) and orders (line)",
+        "format": {
+          "x": "month",
+          "y": "currency"
+        },
+        "y2Label": "Orders",
+        "referenceLines": [
+          {
+            "value": 600000,
+            "label": "Monthly goal",
+            "color": "#6250d6"
+          }
+        ]
+      }
+    },
+    "w_facets": {
+      "type": "line-chart",
+      "query": "q_month_region",
+      "encoding": {
+        "x": "order_date",
+        "y": "revenue",
+        "facet": "region"
+      },
+      "options": {
+        "title": "Revenue by month, per region",
+        "format": {
+          "x": "month"
+        },
+        "numberFormats": {
+          "revenue": {
+            "prefix": "$",
+            "scale": "auto"
+          }
+        }
+      }
+    },
+    "w_heat": {
+      "type": "heatmap",
+      "query": "q_region_cat",
+      "encoding": {
+        "x": "category",
+        "y": "region",
+        "value": "revenue"
+      },
+      "options": {
+        "title": "Revenue: region \u00d7 category",
+        "showValues": true,
+        "numberFormats": {
+          "revenue": {
+            "prefix": "$",
+            "scale": "auto"
+          }
+        }
+      }
+    },
+    "w_tree": {
+      "type": "treemap",
+      "query": "q_region_cat",
+      "encoding": {
+        "category": "category",
+        "group": "region",
+        "value": "revenue"
+      },
+      "options": {
+        "title": "Revenue mix",
+        "format": "currency"
+      }
+    },
+    "w_fall": {
+      "type": "waterfall",
+      "query": "q_channel",
+      "encoding": {
+        "category": "channel",
+        "value": "revenue"
+      },
+      "options": {
+        "title": "Revenue build-up by channel",
+        "numberFormats": {
+          "revenue": {
+            "prefix": "$",
+            "scale": "auto"
+          }
+        }
+      }
+    },
+    "w_funnel": {
+      "type": "funnel",
+      "query": "q_status",
+      "encoding": {
+        "stage": "status",
+        "value": "orders"
+      },
+      "options": {
+        "title": "Orders by status"
+      }
+    },
+    "w_sankey": {
+      "type": "sankey",
+      "query": "q_flow",
+      "encoding": {
+        "source": "channel",
+        "target": "region",
+        "value": "revenue"
+      },
+      "options": {
+        "title": "Revenue flow: channel \u2192 region",
+        "format": "currency"
+      }
+    },
+    "w_bullet": {
+      "type": "bullet",
+      "query": "q_region",
+      "encoding": {
+        "category": "region",
+        "value": "revenue"
+      },
+      "options": {
+        "title": "Revenue vs bands",
+        "ranges": [
+          1000000,
+          2000000,
+          3000000
+        ],
+        "numberFormats": {
+          "revenue": {
+            "prefix": "$",
+            "scale": "auto"
+          }
+        }
+      }
+    },
+    "w_box": {
+      "type": "boxplot",
+      "query": "q_stats",
+      "encoding": {
+        "category": "category",
+        "min": "lo",
+        "q1": "q1",
+        "median": "med",
+        "q3": "q3",
+        "max": "hi"
+      },
+      "options": {
+        "title": "Order size distribution",
+        "format": "currency"
+      }
+    },
+    "w_table": {
+      "type": "table",
+      "query": "q_cat_month",
+      "options": {
+        "title": "Category trend",
+        "sparkline": {
+          "by": "order_date",
+          "value": "revenue",
+          "label": "Monthly revenue"
+        }
+      }
+    },
+    "w_heat_table": {
+      "type": "table",
+      "query": "q_region",
+      "options": {
+        "title": "Regions",
+        "conditionalFormats": [
+          {
+            "field": "revenue",
+            "scale": {
+              "from": "#ffffff",
+              "to": "#2a78d6"
+            }
+          }
+        ],
+        "columns": [
+          {
+            "field": "region",
+            "label": "Region"
+          },
+          {
+            "field": "revenue",
+            "label": "Revenue",
+            "format": "currency"
+          }
+        ]
+      }
+    }
+  },
+  "layout": [
+    {
+      "i": "w_aov",
+      "x": 0,
+      "y": 0,
+      "w": 3,
+      "h": 2
+    },
+    {
+      "i": "w_orders",
+      "x": 3,
+      "y": 0,
+      "w": 3,
+      "h": 2
+    },
+    {
+      "i": "w_gauge",
+      "x": 6,
+      "y": 0,
+      "w": 6,
+      "h": 4
+    },
+    {
+      "i": "w_heat_table",
+      "x": 0,
+      "y": 2,
+      "w": 6,
+      "h": 2
+    },
+    {
+      "i": "w_combo",
+      "x": 0,
+      "y": 4,
+      "w": 12,
+      "h": 5
+    },
+    {
+      "i": "w_facets",
+      "x": 0,
+      "y": 9,
+      "w": 12,
+      "h": 5
+    },
+    {
+      "i": "w_heat",
+      "x": 0,
+      "y": 14,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_tree",
+      "x": 6,
+      "y": 14,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_fall",
+      "x": 0,
+      "y": 19,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_funnel",
+      "x": 6,
+      "y": 19,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_sankey",
+      "x": 0,
+      "y": 24,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_bullet",
+      "x": 6,
+      "y": 24,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_box",
+      "x": 0,
+      "y": 29,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "i": "w_table",
+      "x": 6,
+      "y": 29,
+      "w": 6,
+      "h": 5
+    }
+  ]
+}

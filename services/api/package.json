@@ -1,0 +1,36 @@
+{
+  "name": "@yourorg/bi-api",
+  "version": "0.1.0",
+  "description": "Sratchpad API: the one shared backend (gateway, dashboard store, query layer, AI, sharing).",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.mjs",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "start:dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@duckdb/node-api": "1.4.1-r.4",
+    "@hono/node-server": "1.19.18",
+    "@yourorg/bi-spec": "*",
+    "exceljs": "4.4.0",
+    "hono": "4.6.14",
+    "ioredis": "5.4.1",
+    "nodemailer": "10.2.1",
+    "pg": "8.13.1",
+    "snowflake-sdk": "2.0.2"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "8.0.2",
+    "@types/pg": "8.11.10",
+    "tsx": "4.23.15"
+  }
+}

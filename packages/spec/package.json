@@ -1,0 +1,16 @@
+{
+  "name": "@yourorg/bi-spec",
+  "version": "0.1.0",
+  "description": "The JSON dashboard spec: the one contract authoring, the store, the query layer and every host app share.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "3.24.1"
+  }
+}

@@ -1,0 +1,9 @@
+html, body { margin: 0; }
+body { font: 15px/1.5 'Helvetica Neue', Arial, sans-serif; background: #ffffff; color: #101828; }
+.portal-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; background: #0b3d91; color: #fff; }
+.portal-top nav { display: flex; gap: 22px; font-size: 14px; opacity: 0.85; }
+.portal-top nav .on { opacity: 1; border-bottom: 2px solid #fff; padding-bottom: 2px; }
+.portal-body { max-width: 1240px; margin: 0 auto; padding: 24px 32px 48px; }
+.portal-body h1 { font-size: 26px; margin: 0 0 4px; }
+.portal-lede { margin: 0 0 20px; color: #475467; }
+.portal-frame { border-top: 1px solid #eaecf0; padding-top: 20px; }

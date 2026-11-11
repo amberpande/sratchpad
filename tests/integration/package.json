@@ -1,0 +1,14 @@
+{
+  "name": "@yourorg/integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@yourorg/bi-api": "*",
+    "@yourorg/bi-renderer": "*",
+    "@yourorg/bi-spec": "*"
+  }
+}

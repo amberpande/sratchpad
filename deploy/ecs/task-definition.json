@@ -1,0 +1,125 @@
+{
+  "family": "sratchpad",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sratchpad-task-execution",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sratchpad-task",
+  "containerDefinitions": [
+    {
+      "name": "sratchpad",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/sratchpad:<TAG>",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp",
+          "name": "http"
+        }
+      ],
+      "environment": [
+        {
+          "name": "BI_STORE",
+          "value": "snowflake"
+        },
+        {
+          "name": "BI_UPLOADS",
+          "value": "snowflake"
+        },
+        {
+          "name": "BI_PUBLIC_HOSTS",
+          "value": "sratchpad.example.com"
+        },
+        {
+          "name": "SNOWFLAKE_ACCOUNT",
+          "value": "<ORG>-<ACCOUNT>"
+        },
+        {
+          "name": "SNOWFLAKE_USER",
+          "value": "SRATCHPAD_SVC"
+        },
+        {
+          "name": "SNOWFLAKE_APP_WAREHOUSE",
+          "value": "BI_APP_WH"
+        },
+        {
+          "name": "SNOWFLAKE_APP_ROLE",
+          "value": "BI_APP_ROLE"
+        },
+        {
+          "name": "SNOWFLAKE_WAREHOUSE",
+          "value": "<DEFAULT_TEAM_WAREHOUSE>"
+        },
+        {
+          "name": "SNOWFLAKE_ROLE",
+          "value": "<DEFAULT_TEAM_READER_ROLE>"
+        },
+        {
+          "name": "SNOWFLAKE_TEAM_CONFIG",
+          "value": "{\"team-a\":{\"warehouse\":\"TEAM_A_WH\",\"role\":\"TEAM_A_READER\"}}"
+        },
+        {
+          "name": "SNOWFLAKE_APP_DATABASE",
+          "value": "BI_APP"
+        },
+        {
+          "name": "SNOWFLAKE_APP_SCHEMA",
+          "value": "APP"
+        },
+        {
+          "name": "BI_CACHE_TTL_S",
+          "value": "60"
+        },
+        {
+          "name": "BI_AI",
+          "value": "auto"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "BI_TOKENS",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/bi-tokens"
+        },
+        {
+          "name": "SNOWFLAKE_PRIVATE_KEY",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/snowflake-private-key"
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/anthropic-api-key"
+        },
+        {
+          "name": "BI_METRICS_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/metrics-token"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "stopTimeout": 30,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/sratchpad",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "app",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}
