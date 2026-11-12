@@ -78,6 +78,8 @@ Index
 | [D-065](#d-065-joining-a-row-secured-source-is-refused-fail-closed) | Joining a row-secured source is refused (fail closed) | Accepted |
 | [D-066](#d-066-spec-13-built-through-extension-hooks-by-four-workstreams-one-at-a-time) | Spec 1.3 built through extension hooks by four workstreams, one at a time | Accepted |
 | [D-067](#d-067-platform-writes-share-the-per-team-writes-budget) | Platform writes share the per-team writes budget | Accepted |
+| [D-068](#d-068-llama-32-through-ollama-for-local-testing-only) | Llama 3.2 through Ollama for local testing only | Accepted |
+| [D-069](#d-069-effects-never-return-values-panels-behind-error-boundaries) | Effects never return values; Studio panels behind error boundaries | Accepted |
 
 Open questions are listed [at the end](#open-questions).
 
@@ -629,6 +631,40 @@ Open questions are listed [at the end](#open-questions).
 
 - **Date:** 2026-11-12 · **Status:** Accepted
 - **Decision:** Comment, favorite, subscription, alert, refresh and catalog writes go through the same per-team `writes` rate limit as dashboard saves; reads are not limited.
+
+## D-068 Llama 3.2 through Ollama for local testing only
+
+- **Date:** 2026-11-12 · **Status:** Accepted (owner's request)
+- **Context:** The owner wants to exercise the AI features locally without an Anthropic API key, using Llama 3.2.
+- **Decision:** `BI_LLM_PROVIDER=ollama` (default `anthropic`) runs suggestion ranking and the Studio assistant on a
+  local Ollama model (`OLLAMA_MODEL`, default `llama3.2`). Refused when `NODE_ENV=production`. Only the model call
+  changes: `OllamaRanker` uses Ollama structured JSON output with the same prompt, compact profile and sanitizing;
+  `OllamaAssistantClient` translates the assistant's Messages-shaped tool loop to Ollama `/api/chat` tools, so
+  validation, "draft only" and "profiles, never rows" are unchanged. Data stays on the machine.
+- **Made it work with a 3B model (verified live):** Llama 3.2 wrote tool calls as text, wandered in the long prompt
+  and re-ran earlier requests. So: tool calls written as JSON text are recovered (known tools only, still validated);
+  a `compact` prompt mode for local models (short directive instructions, source columns inline, latest request
+  only, honest "No changes were made" note); a new `add_chart` tool (one simple chart built and validated by the
+  server, available to every provider); and loop safeguards for every provider (an empty edit is "nothing to change",
+  a turn ends after empty edits that follow a change, a JSON tool call is never shown as the reply).
+- **Consequences:** With Llama 3.2 (3B), ranking works and adding simple charts is reliable (about 4 s per turn);
+  edits and styling are unreliable (it may claim or wander). A larger local model (`OLLAMA_MODEL=llama3.1:8b`,
+  `qwen2.5:7b`, …) should do better. Claude remains the production model.
+
+## D-069 Effects never return values; Studio panels behind error boundaries
+
+- **Date:** 2026-11-12 · **Status:** Accepted
+- **Context:** The owner reported the whole Studio going blank shortly after sending an assistant message.
+  Reproduced in real Chrome: the assistant panel's `useEffect(() => el.scrollIntoView(...))` returned the value of
+  `scrollIntoView`, which current Chrome returns as a Promise. React treats an effect's return value as its cleanup
+  and called it ("destroy is not a function"), and an uncaught render-phase error unmounts the whole app.
+- **Decision:** Effects use block bodies so they return nothing (fixed in `AssistantPanel`, `QueryEditor`, renderer
+  `context.tsx` and `DataTable`). A small `PanelBoundary` error boundary wraps the assistant panel and the inspector,
+  so a future bug there shows "The … panel hit an error" with **Try again** instead of blanking the Studio; the draft is kept.
+- **Alternatives:** A lint rule only (would not contain other panel crashes); one boundary around the whole app
+  (would still lose the canvas view).
+- **Consequences:** Regression test `apps/studio/test/assistant-crash.test.tsx` (scrollIntoView returning a Promise;
+  boundary recovery). Verified in headless Chrome against the running app with Llama 3.2.
 
 ---
 

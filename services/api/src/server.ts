@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { DashboardAssistant } from './ai/assistant';
 import { ClaudeRanker } from './ai/ranker';
+import { OllamaAssistantClient, OllamaRanker } from './ai/ollama';
 import { Recommender } from './ai/recommender';
 import { createApp } from './app';
 import { createWebApp } from './web';
@@ -86,14 +87,26 @@ if (config.cacheTtlSeconds > 0) {
 }
 
 const recommender = new Recommender({
-  ranker: config.ai.enabled ? new ClaudeRanker({ model: config.ai.model, effort: config.ai.effort, timeoutMs: config.ai.timeoutMs }) : null,
+  ranker: !config.ai.enabled
+    ? null
+    : config.llm.provider === 'ollama'
+      ? new OllamaRanker({ url: config.llm.ollamaUrl, model: config.llm.ollamaModel, numCtx: config.llm.ollamaNumCtx, timeoutMs: config.ai.timeoutMs })
+      : new ClaudeRanker({ model: config.ai.model, effort: config.ai.effort, timeoutMs: config.ai.timeoutMs }),
   rankTimeoutMs: config.ai.timeoutMs + 5000,
   onRankerError: (error) => logger.warn('AI ranking failed; served rule-based suggestions', { error }),
 });
 
 
 const assistant = config.assistant.enabled
-  ? new DashboardAssistant({ sources: data.sources, model: config.assistant.model, effort: config.assistant.effort, timeoutMs: config.assistant.timeoutMs })
+  ? config.llm.provider === 'ollama'
+    ? new DashboardAssistant({
+        sources: data.sources,
+        client: new OllamaAssistantClient({ url: config.llm.ollamaUrl, model: config.llm.ollamaModel, numCtx: config.llm.ollamaNumCtx, timeoutMs: config.assistant.timeoutMs }),
+        model: `${config.llm.ollamaModel} (ollama)`,
+        timeoutMs: config.assistant.timeoutMs,
+        promptMode: 'compact',
+      })
+    : new DashboardAssistant({ sources: data.sources, model: config.assistant.model, effort: config.assistant.effort, timeoutMs: config.assistant.timeoutMs })
   : null;
 
 // Shared by the data routes and the platform jobs (subscriptions, alerts, refresh, export).
@@ -155,8 +168,8 @@ const server = serve({ fetch: handler.fetch, port: config.port }, (info) => {
     store: config.store,
     snowflake: config.snowflake ? 'configured' : 'off',
     uploads: config.uploads,
-    ai: config.ai.enabled ? config.ai.model : 'rules only',
-    assistant: assistant ? config.assistant.model : 'off',
+    ai: config.ai.enabled ? (config.llm.provider === 'ollama' ? `${config.llm.ollamaModel} (ollama)` : config.ai.model) : 'rules only',
+    assistant: assistant ? assistant.modelName : 'off',
     email: config.platform.smtpUrl ? 'smtp' : 'off',
     scheduler: scheduler ? 'on' : 'off',
     cache: config.cacheTtlSeconds > 0 ? (cache instanceof RedisResultCache ? 'redis' : 'memory') : 'off',

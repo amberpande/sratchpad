@@ -17,6 +17,7 @@ import { DashboardInspector } from './DashboardInspector';
 import { DataPanel, type AsyncStatus } from './DataPanel';
 import type { FieldDrag } from './dnd';
 import { AssistantPanel } from './AssistantPanel';
+import { PanelBoundary } from './PanelBoundary';
 import { HistoryPanel } from './HistoryPanel';
 import { ShareDialog } from './ShareDialog';
 import { PlatformActions } from './platform/PlatformActions';
@@ -406,9 +407,12 @@ export function Studio({ api, draft: initialDraft, saved: initialSaved, latestVe
           </div>
           {/* The chat stays mounted while hidden, so switching tabs keeps the conversation. */}
           <div hidden={rightTab !== 'assistant'} className="assistant-wrap">
-            <AssistantPanel api={api} draft={draft} selected={selected} onApply={(next) => dispatch({ type: 'replace', draft: next })} onUndo={undo} />
+            <PanelBoundary name="assistant">
+              <AssistantPanel api={api} draft={draft} selected={selected} onApply={(next) => dispatch({ type: 'replace', draft: next })} onUndo={undo} />
+            </PanelBoundary>
           </div>
           <div hidden={rightTab !== 'inspector'}>
+          <PanelBoundary key={selected ?? 'dashboard'} name="inspector">
           <h2 className="panel-title">{selected ? 'Widget' : 'Dashboard'}</h2>
           {selected ? (
             <WidgetInspector
@@ -423,6 +427,7 @@ export function Studio({ api, draft: initialDraft, saved: initialSaved, latestVe
           ) : (
             <DashboardInspector draft={draft} issues={issues} dispatch={dispatch} savedVersion={saved?.version ?? 0} fieldsBySourceId={fieldsBySourceId} />
           )}
+          </PanelBoundary>
           </div>
         </aside>
       </div>

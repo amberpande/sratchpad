@@ -174,7 +174,9 @@ export function DataTable({ columns, rows: inputRows, label, mode = 'auto', page
   const layout = resolveTableMode(mode, rows.length, pageSize);
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
-  useEffect(() => setPage(0), [rows]);
+  useEffect(() => {
+    setPage(0);
+  }, [rows]);
   const visible = layout === 'pages' ? rows.slice(page * pageSize, (page + 1) * pageSize) : rows;
   const offset = layout === 'pages' ? page * pageSize : 0;
 

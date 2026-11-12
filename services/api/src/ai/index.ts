@@ -26,3 +26,4 @@ export {
   type PatchOp,
 } from './assistant';
 export { specReference } from './spec-reference';
+export { fromOllamaResponse, OllamaAssistantClient, OllamaRanker, toOllamaMessages, type OllamaOptions } from './ollama';

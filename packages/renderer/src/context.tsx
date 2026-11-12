@@ -36,7 +36,9 @@ export function Root({
   style?: CSSProperties;
   attrs?: Record<string, string | undefined>;
 }) {
-  useInsertionEffect(() => ensureStyles(), []);
+  useInsertionEffect(() => {
+    ensureStyles();
+  }, []);
   return (
     <div className={className ? `bi-root ${className}` : 'bi-root'} data-bi-theme={theme} style={style} {...attrs}>
       {children}

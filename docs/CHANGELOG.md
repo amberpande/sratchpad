@@ -6,6 +6,19 @@ tested with fakes.
 
 ## 2026-11-12
 
+### Fix: Studio went blank after an assistant message (D-069)
+- The assistant panel's scroll effect returned Chrome's `scrollIntoView` Promise, which React called as cleanup and
+  crashed the whole page. Effects now return nothing; the assistant panel and inspector sit behind an error boundary
+  with "Try again". Regression test added. Verified in headless Chrome (assistant reply shown, page intact).
+  **Not verified:** Safari and Firefox (no crash expected; they return `undefined`).
+
+### Llama 3.2 for local testing (D-068)
+- `BI_LLM_PROVIDER=ollama` runs suggestion ranking and the Studio assistant on a local Ollama model (default
+  `llama3.2`); refused in production. New `add_chart` assistant tool (all providers); compact prompt mode for local
+  models; recovery of tool calls written as text; loop safeguards (empty edits end the turn, no JSON replies).
+- Verified live with Llama 3.2: ranking (`rules+llm`, ~13 s); assistant added the requested chart in 3/3 runs and
+  in multi-turn chats (~4 s per turn). **Known weak:** renames and styling (claims without editing, or extra edits).
+
 ### Spec 1.3: the capability gaps closed (D-034 to D-067)
 Built by four workstreams on extension points laid by the lead (D-066), run one at a time after usage limits.
 - **Calculations (D-034 to D-038):** calculated measures (expression AST compiled to SQL), bins and buckets,

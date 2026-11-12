@@ -105,7 +105,7 @@ describe('DashboardAssistant', () => {
     const first = calls[0]!;
     expect(first).toMatchObject({ model: 'claude-opus-5-5', output_config: { effort: 'medium' }, fallbacks: 'default', betas: ['server-side-fallback-2026-07-01'] });
     expect((first.system as Anthropic.Beta.BetaTextBlockParam[])[0]!.cache_control).toEqual({ type: 'ephemeral' });
-    expect(first.tools!.map((t) => (t as { name: string }).name).sort()).toEqual(['get_dashboard', 'get_source_profile', 'list_sources', 'update_dashboard']);
+    expect(first.tools!.map((t) => (t as { name: string }).name).sort()).toEqual(['add_chart', 'get_dashboard', 'get_source_profile', 'list_sources', 'update_dashboard']);
     expect(first).not.toHaveProperty('thinking');
     expect(first).not.toHaveProperty('tool_choice');
     // The draft travels in the user turn; the thinking block is passed back unchanged.

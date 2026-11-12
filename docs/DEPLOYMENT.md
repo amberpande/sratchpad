@@ -176,7 +176,9 @@ All configuration is environment variables (read in `services/api/src/config.ts`
 | `BI_AI` | `auto` | `auto` (on when Anthropic credentials exist), `on`, `off` |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | – | Claude credentials |
 | `BI_AI_MODEL` / `BI_AI_EFFORT` / `BI_AI_TIMEOUT_MS` | `claude-opus-5-5` / `low` / `20000` | Ranker settings |
-| `BI_ASSISTANT` | `auto` | Studio chat assistant: `auto` (on with Anthropic credentials), `on`, `off` |
+| `BI_ASSISTANT` | `auto` | Studio chat assistant: `auto` (on with Anthropic credentials or a local Ollama), `on`, `off` |
+| `BI_LLM_PROVIDER` | `anthropic` | `anthropic` (Claude) or `ollama` (**local testing only**; refused in production) |
+| `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_NUM_CTX` | `http://localhost:11434` / `llama3.2` / `16384` | Local model for ranking and the assistant when `BI_LLM_PROVIDER=ollama` |
 | `BI_ASSISTANT_MODEL` / `BI_ASSISTANT_EFFORT` / `BI_ASSISTANT_TIMEOUT_MS` | `claude-opus-5-5` / `medium` / `90000` | Assistant settings |
 | `BI_RATE_LIMIT_ASSISTANT` | `30` | Assistant turns per minute per team; `0` off |
 
@@ -207,6 +209,16 @@ npm run dev        # API :4000 (memory store, seeded) · host apps :5173/:5174 �
 npm test           # all suites; TEST_DATABASE_URL=postgres://… also runs the Postgres and Snowflake-adapter suites
 npm run typecheck
 ```
+
+AI features without an API key, on a local model (testing only):
+
+```bash
+ollama pull llama3.2                      # once
+BI_LLM_PROVIDER=ollama npm run dev        # suggestions ranked and the Studio assistant run on Llama 3.2
+OLLAMA_MODEL=llama3.1:8b BI_LLM_PROVIDER=ollama npm run dev   # a larger local model edits more reliably
+```
+
+With Llama 3.2 (3B) the assistant reliably adds simple charts; edits and styling are hit and miss (D-068).
 
 Run the production server locally: `npm run build -w @yourorg/studio && npm run build -w @yourorg/viewer
 && npm run build -w @yourorg/bi-api`, copy `apps/studio/dist` and `apps/viewer/dist` into one folder as

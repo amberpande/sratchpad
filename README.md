@@ -50,6 +50,8 @@ npm test           # every suite (TEST_DATABASE_URL=postgres://… adds the Post
 npm run typecheck
 ```
 
+AI features locally without an API key: `BI_LLM_PROVIDER=ollama npm run dev` (Llama 3.2 via Ollama; testing only).
+
 Local development needs no cloud services: an in-memory store (seeded with the example dashboards),
 uploads as local Parquet queried by DuckDB, dev tokens `dev-token-team-a` / `dev-token-team-b`
 (editors) and `dev-token-team-a-viewer`.

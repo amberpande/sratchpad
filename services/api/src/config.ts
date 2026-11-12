@@ -14,6 +14,14 @@ export interface AssistantConfig {
   timeoutMs: number;
 }
 
+/** Which LLM backs suggestion ranking and the assistant. "ollama" is for local testing only. */
+export interface LlmConfig {
+  provider: 'anthropic' | 'ollama';
+  ollamaUrl: string;
+  ollamaModel: string;
+  ollamaNumCtx: number;
+}
+
 export interface AiConfig {
   /** Rank and word suggestions with Claude. Off: rule-based suggestions only. */
   enabled: boolean;
@@ -41,6 +49,7 @@ export interface Config {
   dataDir?: string;
   /** Null when Snowflake is not configured. */
   snowflake: SnowflakeConfig | null;
+  llm: LlmConfig;
   ai: AiConfig;
   /** The Studio's dashboard assistant (chat). */
   assistant: AssistantConfig;
@@ -114,6 +123,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error('BI_UPLOADS=snowflake needs the Snowflake connection settings and SNOWFLAKE_UPLOADS_DATABASE (or SNOWFLAKE_APP_DATABASE).');
   }
   if (production && store === 'memory') throw new Error('NODE_ENV=production needs a durable store: set BI_STORE=snowflake or DATABASE_URL.');
+  const provider = oneOf(env.BI_LLM_PROVIDER, ['anthropic', 'ollama'] as const, 'anthropic', 'BI_LLM_PROVIDER');
+  if (production && provider === 'ollama') throw new Error('BI_LLM_PROVIDER=ollama is for local testing only; it is refused when NODE_ENV=production.');
+  // "auto" turns the AI features on when their backend is available: Anthropic credentials, or a local Ollama.
+  const llmAvailable = provider === 'ollama' || !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
   return {
     port: Number(env.PORT ?? 4000),
     store,
@@ -129,11 +142,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     queryTimeoutMs: Number(env.BI_QUERY_TIMEOUT_MS ?? 15_000),
     dataDir: env.BI_DATA_DIR || undefined,
     snowflake,
+    llm: {
+      provider,
+      ollamaUrl: env.OLLAMA_URL || 'http://localhost:11434',
+      ollamaModel: env.OLLAMA_MODEL || 'llama3.2',
+      ollamaNumCtx: int(env.OLLAMA_NUM_CTX, 16_384, 'OLLAMA_NUM_CTX'),
+    },
     ai: {
       // "auto": on when Anthropic credentials are present in the environment.
       enabled: (() => {
         const mode = oneOf(env.BI_AI, ['auto', 'on', 'off'] as const, 'auto', 'BI_AI');
-        return mode === 'on' || (mode === 'auto' && !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN));
+        return mode === 'on' || (mode === 'auto' && llmAvailable);
       })(),
       model: env.BI_AI_MODEL || 'claude-opus-5-5',
       effort: oneOf(env.BI_AI_EFFORT, ['low', 'medium', 'high'] as const, 'low', 'BI_AI_EFFORT'),
@@ -143,7 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // Follows the AI credentials like recommendations, unless set explicitly.
       enabled: (() => {
         const mode = oneOf(env.BI_ASSISTANT, ['auto', 'on', 'off'] as const, 'auto', 'BI_ASSISTANT');
-        return mode === 'on' || (mode === 'auto' && !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN));
+        return mode === 'on' || (mode === 'auto' && llmAvailable);
       })(),
       model: env.BI_ASSISTANT_MODEL || 'claude-opus-5-5',
       effort: oneOf(env.BI_ASSISTANT_EFFORT, ['low', 'medium', 'high'] as const, 'medium', 'BI_ASSISTANT_EFFORT'),

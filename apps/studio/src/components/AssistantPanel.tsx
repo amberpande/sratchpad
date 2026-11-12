@@ -60,7 +60,11 @@ export function AssistantPanel({ api, draft, selected, onApply, onUndo }: Assist
     };
   }, [api]);
 
-  useEffect(() => endRef.current?.scrollIntoView?.({ block: 'end' }), [turns, busy]);
+  // Block body on purpose: an effect must return nothing or a cleanup function, and Chrome's
+  // scrollIntoView now returns a Promise (returning it crashed the whole Studio).
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [turns, busy]);
 
   const send = async (text: string) => {
     const content = text.trim();

@@ -80,9 +80,13 @@ Open the **Assistant** tab next to the inspector and describe what you want, in 
 It edits your **draft**: the change appears on the canvas, listed under its reply, and **Undo this change**
 (or ⌘Z) reverts it in one step. Nothing is saved until you click **Save**. If you edit while it is working,
 it won't overwrite you; send the request again. It only uses fields your data actually has (it reads the
-source's profile, never the rows). When you ask for something Sratchpad can't do yet, such as maps or
-click-to-filter (see [`CAPABILITIES.md`](CAPABILITIES.md)), it says so and offers the closest option.
-If the panel says the assistant isn't enabled, your admin needs to turn it on.
+source's profile, never the rows). When you ask for something Sratchpad can't do yet, such as forecasts or
+level-of-detail calculations (see [`CAPABILITIES.md`](CAPABILITIES.md)), it says so and offers the closest option.
+If the panel says the assistant isn't enabled, your admin needs to turn it on. For local testing it can run on a
+local model (Llama 3.2 via Ollama, `BI_LLM_PROVIDER=ollama`): good for adding simple charts, much weaker than Claude
+at edits and styling.
+If the assistant panel or the inspector ever says it "hit an error", click **Try again**; your draft
+and the canvas are not affected.
 
 ## Suggest a dashboard (AI)
 

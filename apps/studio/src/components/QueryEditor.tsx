@@ -60,7 +60,9 @@ function AdvancedEditor({ query, onChange }: { query: NormalQuery; onChange: (q:
   };
   const [text, setText] = useState(current);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setText(current()), [JSON.stringify(ADVANCED_KEYS.map((k) => query[k]))]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setText(current());
+  }, [JSON.stringify(ADVANCED_KEYS.map((k) => query[k]))]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="advanced-query">
       <textarea
