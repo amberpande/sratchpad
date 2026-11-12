@@ -42,10 +42,11 @@ Cost: every app read runs on `BI_APP_WH`, so it must be running while people use
 
 | Secret | Env var | Value |
 | --- | --- | --- |
-| `sratchpad/bi-tokens` | `BI_TOKENS` | `token:team:subject[:role],…`: Studio/API access tokens (until SSO) |
+| `sratchpad/bi-tokens` | `BI_TOKENS` | `token:team:subject[:role[:attributes]],…`: Studio/API access tokens (until SSO); attributes feed row-level security |
 | `sratchpad/snowflake-private-key` | `SNOWFLAKE_PRIVATE_KEY` | PEM private key of `SRATCHPAD_SVC` |
 | `sratchpad/anthropic-api-key` | `ANTHROPIC_API_KEY` | Optional: enables Claude ranking of suggestions and the Studio assistant |
 | `sratchpad/metrics-token` | `BI_METRICS_TOKEN` | Optional: protects `/metrics` |
+| `sratchpad/smtp-url` | `SMTP_URL` | Optional: SMTP credentials for subscription and alert emails (Amazon SES SMTP) |
 
 Generate tokens with e.g. `openssl rand -base64 32`; give each person or app its own.
 
@@ -91,7 +92,20 @@ deploy, as an editor:
    window; read the JSON with the token; revoke and confirm both stop working.
 5. With `ANTHROPIC_API_KEY` set: open the Studio's Assistant tab and ask for a chart and a theme change;
    undo it; ask for something unsupported (a map) and check it says so.
-6. Check `/metrics` with the metrics token and the CloudWatch logs.
+6. Row-level security (if `BI_RLS_POLICIES` is set): a token with the attribute sees only its rows; a token
+   without it gets `rls_denied`; a viewer link created by a restricted user is restricted too.
+7. Email and webhooks (if `SMTP_URL` is set): create a subscription → **Send now** → the email arrives with a link
+   and CSV; create an alert with a webhook to an endpoint you control → **Check now** → verify the signature.
+8. Click a bar on a dashboard with click-to-filter on; drill down and back; switch tabs.
+9. Check `/metrics` with the metrics token and the CloudWatch logs.
+
+### Email (Amazon SES)
+
+SES setup: verify the sender domain/address, leave the SES sandbox (or verify recipients), create SMTP credentials,
+store `SMTP_URL` in Secrets Manager (`sratchpad/smtp-url`, already in the task definition). Outbound 465 from the
+private subnets via NAT. Subscription links need `BI_PUBLIC_HOSTS` (or `BI_VIEWER_URL`).
+Smoke test addition: create a subscription → **Send now** → email arrives with link + CSV; create an alert with a
+webhook to a test endpoint you control → **Check now** → verify the signature.
 
 ## Before rolling out to every team
 
@@ -114,7 +128,8 @@ All configuration is environment variables (read in `services/api/src/config.ts`
 | `BI_STATIC_DIR` | – (image: `/app/public`) | Serve the built Studio and viewer from this process (single container) |
 | `BI_PUBLIC_HOSTS` | – | Hostnames the app is served on; share links use the request host when listed |
 | `BI_VIEWER_URL` | dev: `http://localhost:5176` | Explicit viewer URL for links (wins over `BI_PUBLIC_HOSTS`) |
-| `BI_TOKENS` | dev tokens | `token:team:subject[:role]`, comma-separated; role `editor` (default) or `viewer` |
+| `BI_TOKENS` | dev tokens | `token:team:subject[:role[:attributes]]`, comma-separated; role `editor` (default) or `viewer`; attributes `region=EU\|US;country=FR`, `*` = all values |
+| `BI_RLS_POLICIES` | – | Row-level security per team: `{"team-a": [{"field": "region", "attribute": "region", "source": {"type": "snowflake", "ref": "DB.S.ORDERS"}}]}`. Malformed = the server won't start |
 | `BI_CORS_ORIGINS` | – | Origins allowed to call the API directly from browsers (not needed with one origin) |
 | `BI_SEED` / `BI_SEED_TEAM` | memory: on / `team-a` | Load `examples/dashboards` into a team on boot |
 | `BI_EXAMPLES_DIR` | repo `examples/dashboards` | Where the seed dashboards are |
@@ -164,6 +179,17 @@ All configuration is environment variables (read in `services/api/src/config.ts`
 | `BI_ASSISTANT` | `auto` | Studio chat assistant: `auto` (on with Anthropic credentials), `on`, `off` |
 | `BI_ASSISTANT_MODEL` / `BI_ASSISTANT_EFFORT` / `BI_ASSISTANT_TIMEOUT_MS` | `claude-opus-5-5` / `medium` / `90000` | Assistant settings |
 | `BI_RATE_LIMIT_ASSISTANT` | `30` | Assistant turns per minute per team; `0` off |
+
+### Platform (email, scheduler, webhooks)
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `SMTP_URL` | – | e.g. `smtps://<SES SMTP user>:<password>@email-smtp.<region>.amazonaws.com:465`. Unset: no email (runs recorded as not delivered). Secret. |
+| `SMTP_FROM` | `Sratchpad <no-reply@sratchpad.invalid>` | Sender; must be a verified SES identity |
+| `BI_SCHEDULER` | `on` | Run subscriptions/alerts/refresh in this process (lease ensures one task works) |
+| `BI_SCHEDULER_INTERVAL_S` | `60` | Tick interval |
+| `BI_WEBHOOK_ALLOWED_HOSTS` | – | Comma list of hosts or `.suffix` entries alerts may call; empty = any public host |
+| `BI_WEBHOOK_TIMEOUT_MS` | `5000` | Webhook timeout |
 
 ### Frontend build and dev
 

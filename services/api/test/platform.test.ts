@@ -19,7 +19,7 @@ class FakeMailer implements Mailer {
   }
 }
 
-function setup(opts: { mailer?: Mailer | null; webhooks?: WebhookSender } = {}) {
+function setup(opts: { mailer?: Mailer | null; webhooks?: WebhookSender; rls?: Record<string, Array<{ field: string; attribute: string }>> } = {}) {
   let clock = new Date('2026-11-10T07:00:00Z');
   const now = () => clock;
   const store = new MemoryDashboardStore();
@@ -32,7 +32,7 @@ function setup(opts: { mailer?: Mailer | null; webhooks?: WebhookSender } = {}) 
     dashboards: store,
     shares,
     engines: defaultEngines(now),
-    queryServices: {},
+    queryServices: opts.rls ? { rls: opts.rls } : {},
     queryTimeoutMs: 15_000,
     mailer,
     webhooks,
@@ -154,6 +154,17 @@ describe('platform routes', () => {
     expect((await call('PUT', '/v1/metrics-catalog/revenue', { token: VIEWER, body: { label: 'Revenue' } })).status).toBe(403);
     expect((await call('PUT', '/v1/metrics-catalog/9bad', { body: {} })).status).toBe(400);
   });
+
+  it('metric catalog: editors define metrics validated by the query layer; the team reads them', async () => {
+    const { call, service } = await seeded();
+    const bad = await call('PUT', '/v1/metrics-catalog/revenue', { body: { field: 'amount', agg: 'median_ish' } });
+    expect(bad.status).toBe(422);
+    expect((await call('PUT', '/v1/metrics-catalog/revenue', { body: { label: 'Revenue', field: 'amount', agg: 'sum', format: 'currency' } })).status).toBe(200);
+    expect((await call('GET', '/v1/metrics-catalog', { token: VIEWER })).json).toEqual({ metrics: [{ name: 'revenue', label: 'Revenue', field: 'amount', agg: 'sum', format: 'currency' }] });
+    expect((await call('GET', '/v1/metrics-catalog', { token: OTHER })).json).toEqual({ metrics: [] });
+    expect(await service.metricCatalog.get('team-a')).toHaveLength(1);
+    expect((await call('DELETE', '/v1/metrics-catalog/revenue')).status).toBe(204);
+  });
 });
 
 describe('subscriptions', () => {
@@ -216,6 +227,24 @@ describe('alerts', () => {
   });
 });
 
+describe('row-level security in jobs', () => {
+  it('alerts and refresh run as their owner with the owner’s attributes; none means denied', async () => {
+    const s = await seeded({ rls: { 'team-a': [{ field: 'region', attribute: 'region' }] } });
+    const make = (attributes?: Record<string, string[]>) =>
+      s.service.createAlert({ teamId: 'team-a', subject: 'dev-a', role: 'editor', ...(attributes ? { attributes } : {}) }, {
+        dashboardId: 'dash_9f2a', name: 'EU', queryId: 'q_rev_by_region', field: 'revenue', reduce: 'count', op: 'gt', threshold: 100, intervalMinutes: 15, recipients: ['a@example.com'],
+      });
+    const eu = await s.service.evaluateAlert('team-a', await make({ region: ['Europe'] }));
+    expect(eu.lastError).toBeUndefined();
+    expect(eu.lastValue).toBe(1); // one region row: only Europe is visible to this owner
+    const none = await s.service.evaluateAlert('team-a', await make());
+    expect(none.lastError).toMatch(/rls_denied/);
+    await s.service.setRefresh({ teamId: 'team-a', subject: 'dev-a', role: 'editor', attributes: { region: ['*'] } }, 'dash_9f2a', 30);
+    const [r] = await s.service.listRefresh('team-a');
+    expect((await s.service.runRefresh('team-a', r!)).lastRun).toMatchObject({ status: 'ok' });
+  });
+});
+
 describe('scheduler', () => {
   it('only the lease holder runs due jobs; another task takes over after the lease expires', async () => {
     const s = await seeded();
@@ -238,7 +267,7 @@ describe('scheduler', () => {
 
   it('refresh re-runs a dashboard’s queries bypassing the cache', async () => {
     const s = await seeded();
-    await s.service.setRefresh('team-a', 'dash_9f2a', 30);
+    await s.service.setRefresh({ teamId: 'team-a', subject: 'dev-a', role: 'editor' }, 'dash_9f2a', 30);
     const [r] = await s.service.listRefresh('team-a');
     const ran = await s.service.runRefresh('team-a', r!);
     expect(ran.lastRun).toMatchObject({ status: 'ok', message: expect.stringMatching(/^\d+\/\d+ queries refreshed/) });

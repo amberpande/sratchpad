@@ -36,3 +36,9 @@ body { margin: 0; background: var(--v-bg); color: var(--v-fg); }
 .viewer-range { border: 0; padding: 0; margin: 0; display: flex; align-items: center; gap: 6px; flex-direction: row; flex-wrap: wrap; }
 .viewer-range legend { width: 100%; padding: 0; margin-bottom: 4px; }
 .viewer-range input { width: 120px; }
+
+.viewer-print { align-self: flex-end; font: inherit; font-size: 14px; color: var(--v-fg); background: var(--v-card); border: 1px solid var(--v-line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+@media print {
+  .viewer-controls, .viewer-print { display: none !important; }
+  .viewer { max-width: none; padding: 0; }
+}

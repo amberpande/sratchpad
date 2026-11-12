@@ -1,86 +1,75 @@
 # Sratchpad: capabilities and gaps
 
-What you can build in Sratchpad today, what Tableau or Qlik can do that Sratchpad cannot (yet), and
-the order we would close the gaps. Keep this current: update it whenever a gap is closed or found.
+What you can build in Sratchpad today, what Tableau or Qlik can still do that Sratchpad cannot, and what we
+would build next. Keep this current: update it whenever a gap is closed or found (see `CLAUDE.md`).
 
-Sratchpad deliberately does not try to match Tableau/Qlik feature for feature (D-001). It wins on
-**embeddability** (dashboards as JSON, rendered in any team's app, readable by other apps), **AI-assisted
-authoring** (suggestions and the Studio assistant) and **one governed backend**. The gaps below are the
-price of that focus; the ones that block real dashboards are first on the roadmap.
+Sratchpad does not try to match Tableau and Qlik feature for feature (D-001). It wins on **embeddability**
+(dashboards as JSON rendered in any team's app and readable by other apps), **AI-assisted authoring**
+(suggestions and the Studio assistant) and **one governed backend**. Spec 1.3 (2026-11-12) closed most of the
+gaps listed in the previous version of this page (D-033, D-034 to D-067).
 
-## What you can build today (spec 1.2)
+## What you can build today (spec 1.3)
 
 | Area | Supported |
 | --- | --- |
-| Chart types | KPI, line, bar (vertical/horizontal, stacked), area (stacked), scatter (size, label), pie/donut, pivot table, table (paged or virtualized), text |
-| Data | Sample data, uploaded CSV/Excel, Snowflake tables/views (pushdown) |
-| Queries | Group by dimensions and time grains (day…year); sum, avg, min, max, count, count distinct; filters (11 operators); sort; limit |
-| Multi-series | Several measures, or one measure split by a column (`series`) |
-| Controls | Date range (presets or from/to) and single-value select, bound to any queries |
-| Layout | Free 12-column grid, any size, responsive stacking on narrow screens |
-| Formatting | Number, integer, currency, percent, compact, date, month, text; table column labels, formats and alignment |
-| **Styling (1.2)** | Dashboard theme: light/dark mode, series palette, accent, page and card backgrounds, card style (bordered, flat, elevated), density, corner radius, font family. Per widget: colors, background, emphasis, title alignment, hide title. Charts: gridlines, data labels, axis titles, hide axes, y-axis min/max, legend, curve, orientation, stacking |
-| Authoring | Drag-and-drop Studio, live preview, versions, conflicts, JSON view, AI suggestions, **chat assistant** |
-| Sharing | Embed with one component; read-only app tokens; viewer links; team viewer role |
+| Chart types | KPI, line, bar, area, scatter, pie/donut, table, pivot, text, **map** (world countries, US states; filled or symbol), **heatmap**, **treemap**, **box plot**, **waterfall**, **funnel**, **gauge**, **bullet**, **sankey**, **combo / dual axis**, **image**, **small multiples** (facet) |
+| Data | Sample data, uploaded CSV/Excel (Snowflake Iceberg tables in production), Snowflake tables (pushdown), **joins** between sources of the same engine |
+| Calculations | Group by dimensions and time grains; sum, avg, min, max, count, count distinct, **median, p25, p75, p90, stddev**; **calculated measures** (`revenue / orders`, `sum(profit) / sum(amount)`, round, coalesce, …); **bins** (histograms) and **buckets** (CASE groups); **table calcs**: running total, % of total, rank, moving average, difference, % change (period over period, year over year); **top-N with "Other"**; **team metric catalog** |
+| Filters and controls | Date range, select, **multi-select** (fixed or query-driven, cascading), **range**, **search** (contains / starts with / ends with), **measure switch** |
+| Interactivity | **Click to filter** other widgets, **drill-down** (hierarchies on time and dimensions, breadcrumb), **drill-through** (host apps), **tabs**, **mobile layout**, **click-to-sort** tables |
+| Formatting | Number formats (decimals, prefix/suffix, k/M/B, percent) per column; **conditional formatting** (rules or color scales) on tables and pivots; KPI **thresholds** and **▲/▼ comparison**; **reference lines and bands**, **annotations**, **tooltip fields**, **table sparklines**; theme (mode, palette, accent, backgrounds, card style, density, radius, font), per-widget style, gridlines, data labels, axis titles and ranges |
+| Authoring | Drag-and-drop Studio, live preview, versions, conflicts, JSON view, AI suggestions, chat assistant, editors for calcs, params, tabs, drill, reference lines, conditional formats |
+| Sharing and security | Embed with one component; read-only app tokens and viewer links (with row-level attributes); team viewer role; **row-level security per user** (fail closed) |
+| Platform | **Export** widget CSV/PNG, dashboard **print/PDF**, server CSV export; **scheduled email subscriptions** (KPIs, link, CSV); **data alerts** (email, signed webhooks); **scheduled refresh** (cache warming); **comments**, **favorites**, **usage analytics** |
 
-## What Tableau / Qlik can do that Sratchpad cannot yet
+## What Tableau / Qlik can still do that Sratchpad cannot
 
-### Analysis and calculations (biggest gap)
+### Analysis
 
-| Missing | Example you cannot build today |
+| Missing | Example |
 | --- | --- |
-| Calculated fields / expressions | Profit margin = sum(profit) / sum(revenue); conditional buckets (IF amount > 1000 THEN "Large") |
-| Table calculations | Running totals, % of total, rank, moving averages, year-over-year change |
-| Level-of-detail expressions (Tableau FIXED/INCLUDE/EXCLUDE) | Average order value per customer, then averaged by region |
-| Period comparison on KPIs | "Revenue $1.2M, ▲ 8% vs last month" |
-| Joins / blending / associative model (Qlik) | One chart combining orders and targets from two tables |
-| Bins and histograms | Distribution of order sizes |
-| Sets, groups, top-N with "Other" in queries | "Top 10 customers, rest as Other" (only pie and series fold today) |
+| Level-of-detail expressions (Tableau FIXED / INCLUDE / EXCLUDE) | Average order value per customer, then averaged by region |
+| Row-level calculated fields (expressions over columns before aggregation; string and date functions) | `amount * fx_rate`, `upper(region)` (bins and buckets are the only row-level calcs) |
+| Calendar-aware period comparison | "Same month last year" when months are missing (window offsets count rows) |
+| Joins across engines; blending; Qlik's associative model | An upload joined with a Snowflake table |
+| Joins with row-secured sources | Refused today (D-065) |
 | Forecasting, trend lines, clustering | Revenue forecast band |
+| Sets and groups as reusable objects | "Top customers" set used across sheets |
 
 ### Interactivity
 
 | Missing | Example |
 | --- | --- |
-| Cross-filtering (click a bar to filter the rest) | Click "Europe" and every chart shows Europe |
-| Drill-down / drill-through | Year → quarter → month; click a region to open a detail dashboard |
-| Multi-select, range sliders, search filters, cascading filters | Pick 3 regions; amount between 100 and 500 |
-| Dashboard actions, parameters that switch measures | A dropdown that swaps "Revenue" / "Orders" in every chart |
-| Tabs, multi-page dashboards, show/hide containers | Overview tab and Detail tab |
-| Sort by clicking a column or axis | – |
+| Drill on a series value (only the first dimension drills) | Click a channel line to drill by product |
+| Show/hide containers, dynamic zone visibility | A panel that appears when a filter is set |
+| Multi-bucket time selections in one click | Brush a date range on a chart |
+| Keyboard selection of chart marks | (the "View as table" toggle is the keyboard path) |
+| Cross-filtering in the Studio preview | Works in the viewer and embedded dashboards |
 
 ### Visual types and formatting
 
 | Missing | |
-| --- | --- |
-| Maps (filled, symbol, heat) | Geo columns are detected but not drawable |
-| Heatmap, treemap, box plot, waterfall, funnel, gauge, bullet, sankey, combo/dual-axis, small multiples | |
-| Conditional formatting (color by value or threshold), color scales | |
-| Reference lines and bands, annotations | Target line on a chart |
-| Sparklines in tables, rich tooltips, custom number format strings, decimals per field | |
-| Images, logos, custom fonts beyond the four families, free CSS | Free CSS is excluded on purpose (safety in every host app) |
+| --- | |
+| Counties, custom geographies, ISO alpha-2/3 country codes on maps | |
+| Custom fonts beyond the four families; free CSS | Free CSS is excluded on purpose (safety in every host app) |
 
 ### Platform
 
 | Missing | |
-| --- | --- |
-| Export to PDF/PNG/CSV, scheduled email subscriptions, data alerts | Out of scope for v1 (design doc) |
-| Row-level security per end user | Out of scope for v1 |
-| Shared metric catalog / semantic layer governance | Open question |
-| Extracts with scheduled refresh, incremental loads | Uploads are one-off; Snowflake is queried live (cached 60 s) |
-| Comments, favorites, usage analytics per dashboard | |
-| Mobile-specific layouts | Narrow screens stack widgets automatically |
+| --- | |
+| Materialized extracts and incremental loads | Scheduled refresh warms the cache; data stays live (D-061) |
+| PDF attachments in emails | Emails carry a link and CSV files |
+| Alert snoozing and escalation; per-widget usage analytics | |
+| Single sign-on | Access tokens until SSO (D-027) |
 
 ## Roadmap proposal (most valuable first)
 
-1. **Calculated measures and period comparison**: ratios and expressions in queries (compiled to SQL, never
-   evaluated in the browser), KPI deltas vs previous period, % of total and running totals.
-2. **Cross-filtering and drill-down**: click to filter, hierarchies on time and dimensions.
-3. **Richer controls**: multi-select, ranges, search; a parameter that switches measures.
-4. **Conditional formatting and reference lines**.
-5. **More chart types**: map (choropleth/symbol), heatmap, histogram, combo, waterfall, funnel.
-6. **Tabs / multi-page dashboards**.
-7. **Exports and subscriptions** (PDF/PNG/CSV, scheduled email), then **row-level security**.
+1. **SSO** (team and role from group claims), then refresh job owners' attributes from it (open question, D-063).
+2. **Level-of-detail and row-level expressions** (compiled to SQL like calcs, D-034).
+3. **Row-level security on joined sources** and cross-engine joins.
+4. **Materialized extracts** for hot dashboards (Snowflake-native, D-020).
+5. **Forecast and trend lines**, drill on series, show/hide containers.
+6. **PDF in emails**, alert snoozing, more map geographies.
 
-Each is a spec minor bump (additive) with renderer, Studio and assistant support; the assistant learns
-new features automatically because its spec reference is generated from the schemas.
+Each is an additive spec minor bump where it touches the document; the assistant learns new spec features
+automatically (its reference is generated from the schemas), but new limits go in its "Not supported" list.

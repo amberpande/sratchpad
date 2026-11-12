@@ -4,6 +4,37 @@ What changed, newest first. One entry per change; link the decision (`D-NNN` in
 [`DECISIONS.md`](DECISIONS.md)) when there is one. Keep "Not verified" honest: list what was only
 tested with fakes.
 
+## 2026-11-12
+
+### Spec 1.3: the capability gaps closed (D-034 to D-067)
+Built by four workstreams on extension points laid by the lead (D-066), run one at a time after usage limits.
+- **Calculations (D-034 to D-038):** calculated measures (expression AST compiled to SQL), bins and buckets,
+  median/p25/p75/p90/stddev, window calcs (running total, % of total, rank, moving average, difference, % change /
+  YoY), top-N with "Other", contains/starts_with/ends_with, joins within one engine type, team metric catalog.
+  Studio Calculations section; fixed the Studio dropping 1.3 query fields on edit.
+- **Interactivity and row-level security (D-039 to D-047):** cross-filtering, drill-down and drill-through, tabs,
+  mobile layout, params multiselect (cascading), range, search, measure switch; row-level security from
+  `BI_RLS_POLICIES` and token/share attributes, enforced in `runQuery`, fail closed. Postgres migration
+  `006_share_attributes`; Snowflake `dashboard_shares.attributes`.
+- **Visuals and formatting (D-048 to D-054):** map, heatmap, treemap, box plot, waterfall, funnel, gauge, bullet,
+  sankey, combo/dual axis, image; number formats, conditional formats, KPI thresholds and comparison, reference
+  lines/bands, annotations, tooltip fields, small multiples, table sparklines, click-to-sort; every chart reports
+  clicks to the interaction engine. New example `viz_gallery`.
+- **Platform (D-055 to D-064):** widget CSV/PNG export, print/PDF (also in the viewer), server CSV export; comments,
+  favorites, usage; email subscriptions (SMTP/SES), data alerts (email, signed SSRF-safe webhooks), scheduled
+  refresh, metric catalog storage and editor; lease-based scheduler; jobs run as their owner. Migrations Postgres
+  `005_platform`, Snowflake `004_platform`. New config `SMTP_URL`, `SMTP_FROM`, `BI_SCHEDULER*`, `BI_WEBHOOK_*`.
+- **Integration:** joins wired into `runQuery` with a fail-closed guard for row-secured sources (D-065); `empty_query`
+  counts every output column; overlap warnings per tab; Studio drag keeps a widget's tab; platform writes share the
+  writes rate limit (D-067); CORS allows PATCH; assistant reference lists the new params and interactivity fields and
+  an updated "Not supported" list; fixed test flakes (share secret extraction, pinned migration lists); gauge arc
+  cap overlap; taller example table.
+- Verified: 474+ tests incl. Postgres and the Snowflake-on-Postgres adapter; DuckDB ≡ reference engine for every
+  calculation; maps (world and US) and the gallery in dark mode in Chrome.
+- **Not verified:** 1.3 SQL on a live Snowflake account (percentiles, windows, top-N subquery, `LIKE … ESCAPE`), real
+  SMTP and webhook delivery, PNG export in a real browser, the image widget against a real host, platform tables on
+  live Snowflake, row-level security on Snowflake/DuckDB-on-Snowflake sources.
+
 ## 2026-11-10
 
 ### Studio assistant, styling layer (spec 1.2) and capability review (D-030 to D-033)

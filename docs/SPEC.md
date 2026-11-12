@@ -109,8 +109,19 @@ Hex colors only (`#rgb` or `#rrggbb`). Validation warns `low_contrast` when a ba
 | `pie` | 1.1 | Donut, part-to-whole only (sum/count measure), max 6 slices, rest folded into "Other" |
 | `pivot` | 1.1 | rows × columns × value; reshape only, never aggregates in the browser |
 | `text` | 1.1 | Markdown-lite, **no query** |
+| `map` | 1.3 | Choropleth (`region`, `value`) or symbol (`lat`, `lon`, `size?`, `label?`) over `basemap: world\|usa`. Countries by name or ISO numeric code; US states by name, FIPS or postal code |
+| `heatmap` | 1.3 | `x` × `y` colored by `value`; query groups by exactly x and y |
+| `treemap` | 1.3 | `category` (+ `group`) sized by an additive `value`; largest `maxNodes` shown |
+| `boxplot` | 1.3 | Five statistic columns per `category` (e.g. min, p25, median, p75, max) |
+| `waterfall` | 1.3 | Signed `value` steps per `category`, optional total |
+| `funnel` | 1.3 | `stage`, `value` in query order with conversion % |
+| `gauge` | 1.3 | One value (`options.field`) on min..max (`max` or `maxField`), `target`, color `bands` |
+| `bullet` | 1.3 | `value` vs `target` over `ranges`, one row per `category` |
+| `sankey` | 1.3 | Flows `source` → `target` sized by an additive `value`; no cycles |
+| `combo` | 1.3 | `bars` and `lines` on one `x`, lines on a secondary axis by default |
+| `image` | 1.3 | https `src`, required `alt`, optional https `href`; no query |
 
-Since 1.2 every widget may carry `style`, and line/bar/area/scatter gain the chart options above.
+Since 1.2 every widget may carry `style`, and line/bar/area/scatter gain the chart options above. Since 1.3: the types above marked 1.3, the formatting options below, and the interactivity fields (`drill`, `drillThrough`, `interactions`) on any widget.
 
 Formats: `number`, `integer`, `currency`, `percent`, `compact`, `date`, `month`, `text`.
 See [`examples/dashboards/ops_mix.json`](../examples/dashboards/ops_mix.json) for every 1.1 type.
@@ -136,3 +147,62 @@ compiler follows the same rules (tested against a fake driver).
 - `limit` defaults to 1,000, max 10,000; results report `truncated`.
 - SQL is generated only from the spec: identifiers quoted, every value a bind parameter, the only
   inlined number the validated `LIMIT` (`limit + 1` to detect truncation).
+
+## Calculations (spec 1.3)
+
+All optional; an error in documents claiming an older specVersion.
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| measure `agg` | `median`, `p25`, `p75`, `p90`, `stddev` | numeric columns; continuous percentiles; sample stddev (NULL under 2 values) |
+| filter `op` | `contains`, `starts_with`, `ends_with` | text columns, case-insensitive, value is literal text |
+| dimension `bin` | `{ width, offset? }` | numeric column → `floor((x − offset) / width) × width + offset` |
+| dimension `buckets` | `{ rules: [{ op, value?, label }], else? }` | first matching rule's label, else `else` (NULL if omitted); one of grain / bin / buckets |
+| `calcs` | `[{ as, expr }]` | e.g. `revenue / orders`, `sum(profit) / sum(amount)`, `round(x, 1)`; see grammar below |
+| `windows` | `[{ as, type, measure, order?, partition?, offset?, window?, dir?, dense? }]` | `running_total`, `percent_of_total` (0–1), `rank`, `moving_average` (default 3 rows), `difference`, `percent_change` (offset 12 on months = YoY) |
+| `topN` | `{ dimension, n, by, otherLabel? }` | text dimensions; remainder folded into "Other" (or dropped with `null`) |
+| `joins` | `[{ source, type?: inner\|left, on: [{ left, right }] }]` | same engine type; joined columns are `"<sourceId>.<column>"` |
+| `metrics` | `[{ metric, as? }]` | team catalog metrics, expanded on the server |
+
+Expression grammar: numbers, `+ - * /`, parentheses, unary minus; names of measures, metrics and earlier calcs
+(`"quoted names"` for spaces); aggregate calls `sum avg min max count count_distinct median p25 p75 p90 stddev`
+over a column (`count(*)` counts rows); functions `abs`, `round(x[, digits])`, `coalesce`, `nullif`, `least`,
+`greatest`. Semantics: NULL in → NULL out, division by zero → NULL, least/greatest NULL if any argument is NULL,
+round half away from zero, result rounded to 6 decimals, computed from unrounded aggregates.
+
+Rules: ordered windows need `order`, and `order` + `partition` must name every dimension; `offset` counts rows,
+not calendar periods. Windows run over all groups before ORDER BY / LIMIT. Top-N "Other" is re-aggregated exactly;
+a NULL group counts toward N and folds into Other. Outputs are ordered dimensions, measures, metrics, calcs, windows.
+
+## Interactivity (spec 1.3)
+
+| Where | Field | Meaning |
+| --- | --- | --- |
+| dashboard | `interactions: { crossFilter: true }` | Clicking a mark filters the other widgets on the same source by the clicked value |
+| dashboard | `tabs: [{ id, title }]` + layout item `tab` | Pages; items without `tab` are on the first tab; only the open tab's widgets load |
+| dashboard | `mobileLayout: [{ i, order?, h?, hide? }]` | Order, height and visibility when the grid stacks (narrow screens) |
+| widget | `drill: { levels: [{ field, grain?, label? }, …] }` | Click goes one level down; `levels[0]` must be the query's first dimension; the output column keeps its name |
+| widget | `drillThrough: { dashboardId, params?: { targetParam: column } }` | Click asks the host (`onNavigate`) to open another dashboard |
+| widget | `interactions: { crossFilter: false }` | Opt out of cross-filtering |
+
+Params (all bind like built-ins; values are checked against the declaration):
+
+| type | Value | Filter |
+| --- | --- | --- |
+| `multiselect` (`field`, `options` or `optionsQuery: {query, field}`) | list (empty = no filter) | `in` |
+| `range` (`field`, `kind`: number/date, `min?`, `max?`, `step?`) | `[low, high]`, either `null`; `null` = no filter | `between` / `gte` / `lte` |
+| `search` (`field`, `match`: contains/starts_with/ends_with) | text ('' = no filter) | the match op |
+| `measure` (`as`, `options: [{value, label?, field, agg}]`, binds to `"<q>.measures"`) | an option value | swaps the measure named `as` |
+
+Cross-filter fields are the dimension fields of the dashboard's queries (and widget drill levels) on the same source. A click on a time bucket filters that bucket's date range.
+
+## Formatting (spec 1.3)
+
+All optional, version-gated, and constrained.
+
+- `options.numberFormats` — `{ "<column>": { "decimals": 0–6, "prefix": "$", "suffix": " units", "scale": "none|k|M|B|auto", "percent": true, "thousands": true } }` on every widget that shows values; wins over the column's enum `format`.
+- `options.conditionalFormats` (table, pivot) — `[{ "field", "rules": [{ "op": "gt|gte|lt|lte|eq|neq|between", "value": n | [lo, hi], "color"?, "background"? }] }]` or `[{ "field", "scale": { "from", "to", "mid"? } }]` (hex). First matching rule wins.
+- KPI `thresholds` (same rules, colors the value) and `comparison: { "field", "label"?, "positiveIs": "up|down", "display": "percent|number" }` (reads the column from the last row).
+- Line/bar/area (and combo): `referenceLines` (`{ "axis": "y|x", "value" | "field", "label"?, "color"?, "dashed"? }`), `referenceBands` (`{ "axis", "from", "to", "label"?, "color"? }`), `annotations` (`{ "x", "y"?, "text" }`), `tooltip: { "fields": [...] }`; scatter takes `referenceLines` and `tooltip`.
+- `encoding.facet` on line/bar/area: one panel per value (max 12, shared value axis).
+- Table: `sparkline: { "by", "value", "label"? }` (one row per remaining columns with a mini line), `sortable` (default true).

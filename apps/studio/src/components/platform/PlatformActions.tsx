@@ -581,7 +581,7 @@ function MetricsDialog({ api, editor, onClose }: { api: StudioApi; editor: boole
             Definition (JSON)
             <textarea aria-label="Definition" value={definition} rows={5} onChange={(e) => setDefinition(e.target.value)} spellCheck={false} />
           </label>
-          <button type="submit" className="btn primary small" disabled={!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name)}>
+          <button type="submit" className="btn primary small" disabled={!/^[a-z][a-z0-9_]{0,63}$/.test(name)}>
             Save metric
           </button>
         </form>

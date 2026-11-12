@@ -318,7 +318,7 @@ export function createApp(options: AppOptions) {
       cors({
         origin: options.corsOrigins,
         allowHeaders: ['Authorization', 'Content-Type', 'Cache-Control', 'X-Request-Id'],
-        allowMethods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
+        allowMethods: ['GET', 'PUT', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
         exposeHeaders: ['ETag', 'X-Dashboard-Version', 'X-Request-Id', 'Retry-After'],
         maxAge: 600,
       }),
@@ -741,6 +741,14 @@ export function createApp(options: AppOptions) {
   });
 
   if (options.platform) {
+    // Platform writes (comments, favorites, subscriptions, alerts, refresh, catalog) share the per-team
+    // "writes" budget; reads stay unlimited like dashboard reads.
+    const writes = limit('writes');
+    const platformWrite = async (c: Context<Env>, next: () => Promise<void>) => (c.req.method === 'GET' ? next() : writes(c, next));
+    // A "/x/*" pattern also matches "/x", so each path is listed once (twice would charge twice).
+    for (const path of ['/v1/dashboards/:id/comments/*', '/v1/favorites/*', '/v1/subscriptions/*', '/v1/alerts/*', '/v1/dashboards/:id/refresh', '/v1/metrics-catalog/*']) {
+      app.use(path, platformWrite);
+    }
     registerPlatformRoutes(app, { services: options.platform, store, logger, metrics, now, editor: editor as never, readJson });
   }
 

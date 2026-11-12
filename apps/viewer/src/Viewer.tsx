@@ -139,6 +139,9 @@ export function Viewer({ hash, apiUrl = '/bi-api', fetch: fetchProp }: ViewerPro
               source={{ apiUrl, token: token!, dashboardId: share.dashboardId, version: share.version, fetch: fetchImpl, values }}
             />
           ))}
+          <button type="button" className="viewer-print" onClick={() => window.print()} title="Print, or save as PDF from the print dialog">
+            Print / PDF
+          </button>
         </div>
       </header>
       <Dashboard

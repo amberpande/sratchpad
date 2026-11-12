@@ -2,6 +2,15 @@ import {
   DashboardThemeSchema,
   DateRangeParamSchema,
   FORMATS,
+  DrillSchema,
+  DrillThroughSchema,
+  InteractionsSchema,
+  MeasureParamSchema,
+  MobileLayoutItemSchema,
+  MultiSelectParamSchema,
+  RangeParamSchema,
+  SearchParamSchema,
+  TabSchema,
   GRID_COLUMNS,
   QuerySchema,
   SelectParamSchema,
@@ -109,8 +118,20 @@ LayoutItem: { i: widget id; x: 0–${GRID_COLUMNS - 1}; y: integer row; w: 1–$
 Params (dashboard controls bound into queries):
 - daterange: ${describe(DateRangeParamSchema)}
 - select: ${describe(SelectParamSchema)}
-bind targets look like "<queryId>.filters".
+- multiselect (since 1.3; options fixed or from optionsQuery): ${describe(MultiSelectParamSchema)}
+- range (since 1.3): ${describe(RangeParamSchema)}
+- search (since 1.3): ${describe(SearchParamSchema)}
+- measure (since 1.3; swaps the measure aliased "as" among declared options; binds to "<queryId>.measures"): ${describe(MeasureParamSchema)}
+bind targets look like "<queryId>.filters" (measure params: "<queryId>.measures").
 
-Not supported by the spec today (say so; offer the closest alternative): maps, heatmaps, treemaps, histograms/binning, box plots, waterfall, funnel, gauge, combo/dual-axis charts; calculated fields or ratios between measures; running totals, % of total, period-over-period; joins across sources; click-to-filter, drill-down, tabs; conditional formatting; reference lines; arbitrary CSS, custom fonts beyond the theme options, images.`;
+Interactivity (since 1.3):
+- dashboard interactions: ${describe(InteractionsSchema)} (clicking a mark filters the other widgets on the same source)
+- dashboard tabs: ${describe(TabSchema)}[]; layout items take "tab": <tab id> (items without one are on the first tab)
+- dashboard mobileLayout: ${describe(MobileLayoutItemSchema)}[] (order/height/hide when stacked on narrow screens)
+- widget drill: ${describe(DrillSchema)} (levels[0] must equal the query's first dimension)
+- widget drillThrough: ${describe(DrillThroughSchema)} (needs the host app; viewer links can't follow it)
+- widget interactions: { crossFilter: false } opts a widget out of cross-filtering
+
+Not supported by the spec today (say so; offer the closest alternative): row-level expressions over columns before aggregation (other than bins/buckets); level-of-detail expressions; joins across different engines (e.g. an upload with a Snowflake table) and joining a row-secured source; calendar-aware period offsets (window offsets count rows); forecasting and trend lines; drill on a series value (only the first dimension drills); show/hide containers; map geographies other than world countries (names/ISO numeric) and US states, ISO alpha country codes, counties; arbitrary CSS and custom fonts beyond the theme options.`;
   return cached;
 }

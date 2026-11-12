@@ -33,6 +33,9 @@ Documentation is part of the change, not a follow-up. In the same change as the 
 
 `docs/design-doc.md` is the historical proposal: do not edit it beyond its header note.
 
+Parallel work: give each agent exclusive files and extension points, have it write `docs/notes/<name>.md`
+(decisions, changelog, doc text, requests), then merge the notes into the docs above and delete them (D-066).
+
 ## Commands
 
 ```bash
@@ -64,6 +67,11 @@ only with `TEST_DATABASE_URL`. Use a throwaway local cluster or container, never
 - **Styling values are constrained** (hex colors, enums, bounded numbers) and applied only as CSS custom
   properties. Never add free-form CSS to the spec.
 - **Metrics labels** never contain team or dashboard ids.
+- **Row-level security lives in `runQuery`** (every path: data, preview, exports, jobs) and fails closed; callers
+  must pass a principal (jobs run as their owner). Joins with row-secured sources are refused.
+- **Interactions never widen what runs:** cross-filters, drills and param variants are derived from author-declared
+  config and re-validated on the server.
+- **Outbound calls** (webhooks) are https-only, SSRF-checked at connect time and signed; CSV exports neutralize formulas.
 - **Query semantics** match the reference engine (conformance suite).
 
 ## Conventions

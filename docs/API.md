@@ -40,6 +40,17 @@ Clients name saved queries by id and never send query bodies. Up to 50 queries p
 `Cache-Control: no-cache` to skip the result cache (the fresh result still refreshes it). Results carry
 `asOf` (when the data was read) and `cached: true` when served from cache.
 
+### Interactions, row-level security and 1.3 query errors
+
+`queries` entries may be variants: `{"query": "q_cat", "key": "q_cat~1", "filters"?: [{"field", "op": "in" | "eq", "values", "grain"?}], "drill"?: {"widget", "level", "path"}}`. Response lines use `key`. Cross-filters need `interactions.crossFilter` and may only use the dashboard's declared dimensions on the same source (max 10 filters × 100 values); drills must follow the widget's saved `drill.levels`. Otherwise `400 invalid_filters` / `invalid_drill`. Row-level security errors are per line: `rls_denied`, `rls_misconfigured`.
+
+`POST /v1/dashboards/:id/shares` also takes `attributes` (`{"region": ["EU"]}` or `"region=EU"`): the row-level security attributes the share sees. Default: the creator's own; never more than the creator has (`403`). Shares list `attributes`.
+
+SDK: `<Dashboard onNavigate={({ dashboardId, params }) => …} />` handles drill-through.
+
+Query errors added in 1.3 (per NDJSON line): `invalid_expression`, `invalid_calc`, `invalid_window`, `invalid_top_n`,
+`invalid_dimension`, `invalid_join`, `unknown_metric`, `invalid_metric`, `metrics_not_expanded`, `duplicate_column`.
+
 ## Draft preview, sources and uploads (editors)
 
 | Route | |
@@ -103,6 +114,30 @@ const res = await fetch(`${BI}/v1/dashboards/dash_9f2a/data`, {
 ```
 
 Or render it with the SDK: `<Dashboard id="dash_9f2a" token={shareToken} apiUrl={BI} />`.
+
+## Platform (comments, favorites, usage, exports, schedules, alerts, metric catalog)
+
+| Route | Role | |
+| --- | --- | --- |
+| `GET /v1/platform` | team | `{me: {subject, teamId, role}, email, scheduler}` |
+| `GET /v1/dashboards/:id/comments` | team | `{comments}` oldest first |
+| `POST /v1/dashboards/:id/comments` | team | `{body (≤4000), widgetId?}` → `201 {comment}` |
+| `PATCH /v1/dashboards/:id/comments/:cid` | author | `{body}` |
+| `DELETE /v1/dashboards/:id/comments/:cid` | author or editor | `204` |
+| `GET /v1/favorites` · `PUT/DELETE /v1/favorites/:id` | team | personal favorites |
+| `GET /v1/usage?days=30` | team | `{days, dashboards: [{dashboardId, views, lastViewedDay?, myLastViewedAt?}]}` |
+| `GET /v1/dashboards/:id/usage?days=30` | team | `{total, series: [{day, views}]}` |
+| `GET /v1/dashboards/:id/export?query=&params=&version=` | team | CSV of one saved query (RLS applies) |
+| `GET/POST /v1/subscriptions`, `POST /v1/subscriptions/:sid/run`, `DELETE /v1/subscriptions/:sid` | editor | `{dashboardId, name, recipients, schedule: {frequency, time, timezone, dayOfWeek?, dayOfMonth?}, widgets, includeKpis}` |
+| `GET/POST /v1/alerts`, `POST /v1/alerts/:aid/test`, `DELETE /v1/alerts/:aid` | editor | `{dashboardId, name, queryId, field, reduce, op, threshold, intervalMinutes, recipients, webhookUrl?}`; creation returns `webhookSecret` once |
+| `GET /v1/refresh` · `PUT/DELETE /v1/dashboards/:id/refresh` | editor | `{intervalMinutes 5–1440}` |
+| `GET /v1/metrics-catalog` (team) · `PUT/DELETE /v1/metrics-catalog/:name` (editor) | | metric definitions (format: data/metrics.ts) |
+
+Share tokens get `403` on all of these. Webhook payload: `{type: "alert.fired", alert, dashboard, field, value,
+previous, op, threshold, firedAt}`; verify `X-Sratchpad-Signature` = `sha256=` + hex HMAC-SHA256 of
+`<X-Sratchpad-Timestamp>.<raw body>` with the secret.
+
+Platform writes share the per-team `writes` rate limit (`BI_RATE_LIMIT_WRITES`).
 
 ## Embedding with the SDK
 

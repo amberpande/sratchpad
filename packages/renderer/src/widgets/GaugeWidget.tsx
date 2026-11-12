@@ -48,7 +48,7 @@ export default function GaugeWidget({ widget, result, format }: WidgetProps<Gaug
             prev = b.to;
             return <path key={i} d={d} stroke={b.color} strokeOpacity={0.35} strokeWidth={stroke} fill="none" />;
           })}
-          <path d={arc(cx, cy, r, 0, Math.max(0.001, t(value)))} stroke="var(--bi-accent, var(--bi-series-1))" strokeWidth={stroke * 0.55} strokeLinecap="round" fill="none" data-part="value" />
+          <path d={arc(cx, cy, r, 0, Math.max(0.001, t(value)))} stroke="var(--bi-accent, var(--bi-series-1))" strokeWidth={stroke * 0.55} strokeLinecap="butt" fill="none" data-part="value" />
           {target !== undefined &&
             (() => {
               const [x0, y0] = polar(cx, cy, r - stroke / 1.4, t(target));
@@ -61,10 +61,10 @@ export default function GaugeWidget({ widget, result, format }: WidgetProps<Gaug
           <text x={cx} y={cy + 14} textAnchor="middle" className="bi-axis-text">
             {o.label ?? humanize(o.field)}
           </text>
-          <text x={cx - r} y={cy + 14} textAnchor="middle" className="bi-axis-text">
+          <text x={cx - r} y={cy + 18} textAnchor="middle" className="bi-axis-text">
             {formatValue(o.min, fmt, meta, format, { compact: true })}
           </text>
-          <text x={cx + r} y={cy + 14} textAnchor="middle" className="bi-axis-text">
+          <text x={cx + r} y={cy + 18} textAnchor="middle" className="bi-axis-text">
             {formatValue(max, fmt, meta, format, { compact: true })}
           </text>
         </svg>

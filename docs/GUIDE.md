@@ -25,6 +25,12 @@ tab only. If it expires or is revoked you are sent back to sign in. (Single sign
 7. **JSON** shows the document; edits there apply to the canvas (invalid JSON is ignored until fixed).
 8. Undo/redo with ⌘Z / ⇧⌘Z.
 
+**Calculations.** In a widget's query, **+ Calc** adds an expression over its measures (e.g. `revenue / orders`,
+`sum(profit) / sum(amount)`). A numeric dimension takes a **bin width** for histograms. Under "Table calcs, top N,
+joins, catalog metrics" a small JSON box adds running totals, % of total, rank, moving averages, differences and
+year-over-year change, top-N with "Other", joins to another source of the same kind, and team catalog metrics.
+Buckets (e.g. amount < 100 → "Small") are written in the JSON view.
+
 ## Styling a dashboard
 
 Every dashboard can have a theme (light or dark mode, series colors, accent, page and card backgrounds,
@@ -33,6 +39,33 @@ title alignment. Charts can hide gridlines, show data labels, name and hide axes
 Ask the assistant ("give it a dark navy theme with teal accents"), or edit the **JSON** view (see
 [`SPEC.md`](SPEC.md#styling-spec-12)). If you set dark backgrounds, set the mode to dark too; the
 validator warns otherwise.
+
+**More chart types and formatting (spec 1.3).** The palette now has maps, heatmaps, treemaps, box plots, waterfalls, funnels, gauges, bullet charts, sankeys, combo (bars + lines, two axes) and images. In the widget inspector's style tab you can add reference lines, conditional formats (color cells by rules or a color scale) and KPI thresholds; number formats, tooltips, annotations and small multiples are set in the JSON view or by asking the assistant ("show revenue in $M with one decimal", "split this chart by region"). Click column headers to sort tables. Clicking a bar, slice, region or row selects it when the dashboard has interactions turned on.
+
+## Interactivity
+
+- **Click to filter:** turn on "Click a chart to filter the others" in the dashboard inspector. Viewers click a bar, slice or point; the other widgets on the same data filter to it (shift-click adds values; click again or × clears). Opt a widget out in its inspector.
+- **Drill-down:** in a widget's inspector add drill levels (e.g. Year → Month, Region → Channel). Clicking drills one level; the breadcrumb in the widget header goes back up.
+- **Drill-through:** set a dashboard to open on click; host apps decide how to navigate. Viewer links stay on one dashboard.
+- **Tabs:** add tabs in the dashboard inspector and assign widgets to them.
+- **More controls:** multi-select (choices fixed or from a query, so one control can narrow another), range, search, and a measure switch (e.g. Revenue ↔ Orders).
+
+## Comments, exports, schedules and alerts
+
+**Comments, favorites and views.** *Comments* in the Studio top bar: discuss a dashboard or one widget; edit or delete
+your own. Star dashboards in the list (favorites come first), see 30-day views, sort by what you viewed recently.
+
+**Exporting.** Each widget's **⋯** menu downloads its data as CSV or the chart as PNG. **Print / PDF** in the
+dashboard header prints, or saves as PDF from the print dialog.
+
+**Schedules (editors).** *Schedule*: email a summary daily, weekly or monthly at a time in your time zone, with KPI
+values, a link to the dashboard (valid a few days; each email has a new one) and CSV files of chosen widgets. Emails
+show the dashboard as **you** see it. *Scheduled refresh* keeps a busy dashboard's results freshly cached.
+
+**Alerts (editors).** Watch a number (e.g. sum of revenue) and get an email or a webhook when it crosses a threshold
+or changes by more than a percentage. You are notified when it starts firing, not on every check.
+
+**Metric catalog.** Define metrics like `revenue` once for the team; queries can reference them by name.
 
 ## The assistant (chat)
 

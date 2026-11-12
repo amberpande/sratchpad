@@ -44,6 +44,40 @@ Index
 | [D-031](#d-031-a-chat-assistant-in-the-studio-that-edits-the-draft-through-validated-json-patches) | A chat assistant in the Studio that edits the draft through validated JSON Patches | Accepted |
 | [D-032](#d-032-a-dashboards-theme-mode-wins-over-the-hosts-theme) | A dashboard's theme mode wins over the host's theme | Accepted |
 | [D-033](#d-033-track-capability-gaps-against-tableau-and-qlik-openly) | Track capability gaps against Tableau and Qlik openly | Accepted |
+| [D-034](#d-034-calculations-compile-from-an-ast-post-aggregation-work-stays-in-sql) | Calculations compile from an AST; post-aggregation work stays in SQL | Accepted |
+| [D-035](#d-035-catalog-metrics-are-referenced-in-a-separate-metrics-list) | Catalog metrics are referenced in a separate `metrics` list | Accepted |
+| [D-036](#d-036-ordered-window-calcs-require-a-total-order) | Ordered window calcs require a total order | Accepted |
+| [D-037](#d-037-top-n-with-other-is-exact-and-text-only) | Top-N with "Other" is exact and text-only | Accepted |
+| [D-038](#d-038-joins-same-engine-type-team-checked-attached-by-the-runner) | Joins: same engine type, team-checked, attached by the runner | Accepted |
+| [D-039](#d-039-cross-filters-are-request-variants-checked-against-the-declared-surface) | Cross-filters are request variants checked against the declared surface | Accepted |
+| [D-040](#d-040-drill-down-keeps-the-output-column-name) | Drill-down keeps the output column name | Accepted |
+| [D-041](#d-041-drill-through-is-a-host-callback) | Drill-through is a host callback | Accepted |
+| [D-042](#d-042-the-measure-switch-param-swaps-among-declared-alternatives-only) | The measure-switch param swaps among declared alternatives only | Accepted |
+| [D-043](#d-043-cascading-choices-come-from-a-saved-query) | Cascading choices come from a saved query | Accepted |
+| [D-044](#d-044-tabs-are-a-tab-on-layout-items) | Tabs are a `tab` on layout items | Accepted |
+| [D-045](#d-045-row-level-security-is-enforced-in-runquery-and-fails-closed) | Row-level security is enforced in `runQuery` and fails closed | Accepted |
+| [D-046](#d-046-share-links-carry-a-subset-of-the-creators-attributes) | Share links carry a subset of the creator's attributes | Accepted |
+| [D-047](#d-047-mobile-layout-is-an-optional-per-widget-override) | Mobile layout is an optional per-widget override | Accepted |
+| [D-048](#d-048-custom-number-formats-are-a-new-keyed-option-not-a-widened-format) | Custom number formats are a new keyed option, not a widened `format` | Accepted |
+| [D-049](#d-049-new-visuals-reshape-and-lay-out-never-aggregate) | New visuals reshape and lay out, never aggregate | Accepted |
+| [D-050](#d-050-author-colors-stay-hex-and-reach-css-only-as-custom-properties) | Author colors stay hex and reach CSS only as custom properties | Accepted |
+| [D-051](#d-051-maps-bundle-public-domain-atlases-in-a-lazy-chunk) | Maps bundle public-domain atlases in a lazy chunk | Accepted |
+| [D-052](#d-052-images-are-https-only-checked-twice) | Images are https-only, checked twice | Accepted |
+| [D-053](#d-053-chart-interactions-go-through-one-helper) | Chart interactions go through one helper | Accepted |
+| [D-054](#d-054-studio-only-required-slots-for-option-dependent-encodings) | Studio-only required slots for option-dependent encodings | Accepted |
+| [D-055](#d-055-one-generic-platform-store-one-sql-implementation) | One generic platform store, one SQL implementation | Accepted |
+| [D-056](#d-056-scheduler-leader-election-by-lease-row) | Scheduler leader election by lease row | Accepted |
+| [D-057](#d-057-email-is-an-optional-smtp-endpoint) | Email is an optional SMTP endpoint | Accepted |
+| [D-058](#d-058-subscription-links-are-short-lived-viewer-shares) | Subscription links are short-lived viewer shares | Accepted |
+| [D-059](#d-059-webhooks-are-pinned-to-checked-addresses-at-connect-time) | Webhooks are pinned to checked addresses at connect time | Accepted |
+| [D-060](#d-060-alerts-notify-on-transitions) | Alerts notify on transitions | Accepted |
+| [D-061](#d-061-scheduled-refresh-is-cache-warming-not-extracts) | Scheduled refresh is cache warming, not extracts | Accepted |
+| [D-062](#d-062-widget-exports-in-the-browser-csv-export-on-the-server) | Widget exports in the browser, CSV export on the server | Accepted |
+| [D-063](#d-063-scheduled-jobs-run-as-their-owner) | Scheduled jobs run as their owner | Accepted |
+| [D-064](#d-064-csv-exports-neutralize-spreadsheet-formulas) | CSV exports neutralize spreadsheet formulas | Accepted |
+| [D-065](#d-065-joining-a-row-secured-source-is-refused-fail-closed) | Joining a row-secured source is refused (fail closed) | Accepted |
+| [D-066](#d-066-spec-13-built-through-extension-hooks-by-four-workstreams-one-at-a-time) | Spec 1.3 built through extension hooks by four workstreams, one at a time | Accepted |
+| [D-067](#d-067-platform-writes-share-the-per-team-writes-budget) | Platform writes share the per-team writes budget | Accepted |
 
 Open questions are listed [at the end](#open-questions).
 
@@ -397,6 +431,205 @@ Open questions are listed [at the end](#open-questions).
   types, platform features) with a prioritized roadmap: calculated measures and period comparison first,
   then cross-filtering and drill-down.
 
+## D-034 Calculations compile from an AST; post-aggregation work stays in SQL
+
+- **Date:** 2026-11-11 · **Status:** Accepted · **Detail:** [`SPEC.md`](SPEC.md#calculations-spec-13)
+- **Context:** Calculated measures, window calcs and top-N need user-written logic without injection risk and with identical results on every engine.
+- **Decision:** A small expression grammar (numbers, `+ - * /`, parentheses, `abs`, `round`, `coalesce`, `nullif`, `least`, `greatest`, aggregate calls) parsed into an AST in the spec package and shared by validation, the reference engine and both SQL dialects. Calcs compile into the grouped SELECT over unrounded aggregates; windows into an outer SELECT; top-N into an IN-subquery. Numbers are binds; the only inlined numbers are validated integers engines don't accept as binds.
+- **Alternatives:** Post-processing in JavaScript over aggregated rows (not pushdown); free SQL snippets (injection, not portable).
+- **Consequences:** Results agree to 6 decimals across engines; every feature is in the conformance suite. No row-level expressions before aggregation (other than bins and buckets), no level-of-detail expressions.
+
+## D-035 Catalog metrics are referenced in a separate `metrics` list
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Queries reference team metrics as `metrics: [{ metric, as? }]`, not `{ metric }` on a measure, so `Measure.field`/`agg` stay required and no consumer changes. The server expands them into measures or calcs before compiling (`data/metrics.ts`).
+- **Consequences:** Metric and calc columns carry no `agg`, so additivity checks (pie) reject them.
+
+## D-036 Ordered window calcs require a total order
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** For running total, moving average, difference and percent change, `order` plus `partition` must name every dimension (else engines could order ties differently). `offset` counts rows, not calendar periods (offset 12 on months = year over year).
+- **Consequences:** A missing month shifts the comparison, as in Tableau's LOOKUP. Calendar-aware offsets are a known gap.
+
+## D-037 Top-N with "Other" is exact and text-only
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** "Other" is re-aggregated from rows (CASE in GROUP BY), so averages, distinct counts and percentiles of "Other" are exact. Text dimensions only; a NULL group counts toward N and folds into "Other".
+
+## D-038 Joins: same engine type, team-checked, attached by the runner
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** A query joins other data sources of the same dashboard by id (`joins`), only between sources of the same engine type. `runQuery` attaches their `{type, ref}`; engines re-check team visibility of every joined source exactly like the primary, so an attached ref grants nothing.
+- **Consequences:** No cross-engine joins (for example an upload with a Snowflake table). Row-level security limits joins further (D-065).
+
+## D-039 Cross-filters are request variants checked against the declared surface
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Context:** Clicking a chart must filter the others, yet clients may only run saved queries (D-004).
+- **Decision:** The client sends a variant `{query, key, filters}`. The server accepts only `in`/`eq` on dimension fields of the dashboard's saved queries (or widget drill levels) on the same source, up to 10 filters of 100 scalar values, and only when `interactions.crossFilter` is on. Filters are appended before the cache, so cache keys include them.
+- **Alternatives:** Free-form filters (unsafe); a param for every widget pair (unwieldy).
+- **Consequences:** A click can only narrow results to values of declared dimensions.
+
+## D-040 Drill-down keeps the output column name
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** `drill.levels[0]` must equal the query's first dimension. Level k replaces it with `levels[k]` under the original output name and adds a filter for each clicked value above it. The server derives the variant from the saved levels only.
+- **Consequences:** Widget encodings keep working at every level. Only the first dimension drills.
+
+## D-041 Drill-through is a host callback
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** `drillThrough` asks the host, through `<Dashboard onNavigate>`, to open another dashboard with mapped params.
+- **Consequences:** Share tokens grant one dashboard, so viewer links can't drill through.
+
+## D-042 The measure-switch param swaps among declared alternatives only
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** A `measure` param names the output column it swaps (`as`) and its options (`{value, field, agg}`); clients send only an option value; the swapped measure keeps the alias, so widgets don't change.
+
+## D-043 Cascading choices come from a saved query
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** A multiselect's `optionsQuery` reads a column of a saved query through the normal data route; binding that query to another param narrows the choices. No new API; a param can't read options from a query it filters itself.
+
+## D-044 Tabs are a `tab` on layout items
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** `tabs: [{id, title}]` plus `tab` on layout items; items without one go on the first tab. Only the open tab's widgets render and query. Overlap is checked per tab.
+
+## D-045 Row-level security is enforced in `runQuery` and fails closed
+
+- **Date:** 2026-11-11 · **Status:** Accepted · **Detail:** [`ARCHITECTURE.md`](ARCHITECTURE.md#security-model)
+- **Context:** Every path that runs queries must be secured: dashboard data, previews, exports, alerts, subscriptions.
+- **Decision:** A team policy (`BI_RLS_POLICIES`) maps a source column to a principal attribute (from the token now, from SSO later). It is applied inside `runQuery` after params, drill and cross-filters and before the cache. A principal without the attribute gets `rls_denied` and no rows; `*` means all rows; a malformed policy stops the server. Callers without a principal are denied on governed sources.
+- **Alternatives:** Filtering in each route (easy to miss one); Snowflake row access policies (Snowflake-only, a role per user).
+- **Consequences:** Background jobs must run as someone (D-063). Profiles are editor-only summaries over all rows and are not row-filtered.
+
+## D-046 Share links carry a subset of the creator's attributes
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** A share stores the row-level security attributes it grants: the creator's own by default, or a narrower set; never more (403). Stored in Postgres migration `006_share_attributes` and the Snowflake `dashboard_shares.attributes` column.
+- **Consequences:** A link keeps showing what was granted until it is revoked, even if the creator's access later shrinks.
+
+## D-047 Mobile layout is an optional per-widget override
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** `mobileLayout` sets order, height and hiding for widgets when the grid stacks below 640 px; the default stays reading order.
+
+## D-048 Custom number formats are a new keyed option, not a widened `format`
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** `options.numberFormats` keyed by result column, a constrained object (decimals, prefix, suffix, k/M/B scaling, percent, thousands), not format strings. It wins over the enum `format`.
+- **Alternatives:** Making `format` accept objects (can't be version-gated; breaks 1.2 readers); ICU/Excel strings (unbounded).
+
+## D-049 New visuals reshape and lay out, never aggregate
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Heatmap, sankey, treemap, waterfall, funnel, bullet and box plot require queries grouped by exactly their dimensions; the browser only positions aggregated rows. Waterfall offsets and funnel conversion ratios are display arithmetic, like stacking. A treemap drops its tail (with a note) instead of summing it into "Other".
+
+## D-050 Author colors stay hex and reach CSS only as custom properties
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Conditional formats, KPI thresholds and map ramps set CSS custom properties from validated hex; SVG fills use validated hex or theme variables. Default scales use the first series color at rising opacity, so they follow light and dark themes.
+
+## D-051 Maps bundle public-domain atlases in a lazy chunk
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** world-atlas (1:110m) and us-atlas (states 1:10m) with d3-geo, about 220 KB, loaded only when a dashboard has a map. Countries match by name, aliases or ISO numeric code; US states by name, FIPS or postal code; unmatched rows are counted in a note.
+- **Consequences:** No ISO alpha-2/3 country codes, counties or custom geographies yet.
+
+## D-052 Images are https-only, checked twice
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** The schema refuses non-https `src`/`href`; the renderer checks again, sends no referrer, and opens links with `noopener noreferrer`. `alt` is required.
+
+## D-053 Chart interactions go through one helper
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Every chart uses `useMarks(field)` (wrapping the interaction contract), so selection, shift-click, the pointer cursor and dimming behave the same everywhere. Marks are selected by click; the table view remains the keyboard path.
+
+## D-054 Studio-only required slots for option-dependent encodings
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** The spec keeps `map.region/value` and `bullet.category` optional (they depend on other options); the Studio fills them so every new widget starts valid. `combo.lines` is optional.
+
+## D-055 One generic platform store, one SQL implementation
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Comments, favorites, subscriptions, alerts, refresh schedules and metric catalogs are team-scoped JSON records; usage is counters; the scheduler uses leases. Three tables (`platform_records`, `platform_counters`, `platform_leases`) with one portable SQL implementation for Postgres (`005_platform`) and Snowflake hybrid tables (`004_platform`), plus a memory store.
+- **Alternatives:** A table per feature (twice the migrations); standard Snowflake tables (no keys or locking).
+- **Consequences:** No queries inside the JSON; listing filters by id prefix (escaped `LIKE`).
+
+## D-056 Scheduler leader election by lease row
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Every ECS task ticks (default 60 s); only the holder of the `scheduler` lease (expiry three ticks) runs due jobs.
+- **Alternatives:** EventBridge Scheduler or SQS (new AWS services, against D-020); a separate worker service.
+- **Consequences:** Jobs may run up to about three ticks late after a leader dies; at-least-once if a task crashes mid-run.
+
+## D-057 Email is an optional SMTP endpoint
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** nodemailer with `SMTP_URL` (Amazon SES SMTP recommended). Without it, features keep working and record runs as not delivered.
+- **Alternatives:** The SES API SDK (new dependency, AWS-specific).
+
+## D-058 Subscription links are short-lived viewer shares
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Each email gets a new viewer share expiring after about 2.5 schedule intervals (3, 10 or 40 days); the previous one is revoked.
+- **Alternatives:** One long-lived link (a leaked email would work forever).
+
+## D-059 Webhooks are pinned to checked addresses at connect time
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Alert webhooks are https only, with no credentials in the URL and an optional host allowlist. Every resolved address is checked inside the socket's own lookup (no DNS-rebinding gap); private, loopback, link-local and similar ranges are refused; no redirects; timeout; signed with HMAC-SHA256 (`X-Sratchpad-Signature`, `X-Sratchpad-Timestamp`).
+- **Alternatives:** Validate, then call `fetch` (it resolves again: rebinding risk).
+
+## D-060 Alerts notify on transitions
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Only entering "firing" notifies, not every check. `change_pct` compares with the previous check's value.
+
+## D-061 Scheduled refresh is cache warming, not extracts
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Scheduled refresh re-runs a dashboard's queries with the cache bypassed. No materialized copies; data stays live in Snowflake. True extracts and incremental loads remain a gap.
+
+## D-062 Widget exports in the browser, CSV export on the server
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Widget CSV and PNG are made in the browser (exactly what the viewer saw); PDF through the browser's print dialog (no headless browser in the image); a server CSV export of one saved query for automation, through `runQuery` with the caller's principal.
+
+## D-063 Scheduled jobs run as their owner
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Subscriptions, alerts and refresh capture the owner's subject, role and row-level security attributes when created and run as that principal through `runQuery`. Only editors create subscriptions, so emails show what an editor sees.
+- **Consequences:** If the owner's access later shrinks, the job keeps the old attributes until it is recreated (open question).
+
+## D-064 CSV exports neutralize spreadsheet formulas
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Decision:** Text cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'`, in browser and server exports.
+
+## D-065 Joining a row-secured source is refused (fail closed)
+
+- **Date:** 2026-11-11 · **Status:** Accepted
+- **Context:** Row-level security filters a query's primary source; joins (D-038) bring in other sources.
+- **Decision:** `runQuery` checks every joined source's access too: a missing attribute is `rls_denied`, and a joined source that would need row filters is refused rather than read unfiltered.
+- **Consequences:** Joins with governed sources need future work (filters on joined relations).
+
+## D-066 Spec 1.3 built through extension hooks by four workstreams, one at a time
+
+- **Date:** 2026-11-10 to 2026-11-12 · **Status:** Accepted
+- **Context:** Closing the capability gaps (D-033) touched the spec, renderer, Studio and API at once. Parallel agents risked overwriting each other; account usage limits stopped all four together.
+- **Decision:** The lead added extension points (`query-ext`, `params-ext`, `dashboard-ext`, `widget-ext`, the interaction contract, widget menu and toolbar slots, a platform-routes hook, the metric-catalog contract), pinned new dependencies (d3-geo 3.1.1, topojson-client, world-atlas, us-atlas, d3-hierarchy 3.1.2, d3-sankey, nodemailer 10.2.1; only versions at least two weeks old) and gave each workstream exclusive files. After the usage limits, workstreams ran one at a time with integration between phases.
+- **Consequences:** Every 1.3 feature is optional and version-gated; the validator and contracts stayed stable while four areas changed.
+
+## D-067 Platform writes share the per-team writes budget
+
+- **Date:** 2026-11-12 · **Status:** Accepted
+- **Decision:** Comment, favorite, subscription, alert, refresh and catalog writes go through the same per-team `writes` rate limit as dashboard saves; reads are not limited.
+
 ---
 
 ## Open questions
@@ -410,4 +643,5 @@ Open questions are listed [at the end](#open-questions).
 | A shared metric catalog ("revenue" defined once)? | Product | Each dashboard defines its own today |
 | Exact global rate limits across tasks? | Platform owner | Per-task today (D-013) |
 | Rename the `@yourorg` scope and `BI_*` prefix? | Owner | Deferred (D-028) |
-| Which roadmap item first (calculations vs cross-filtering)? | Product | Proposal in `CAPABILITIES.md` |
+| Should scheduled jobs refresh the owner's row-level attributes instead of keeping them from creation? | Platform owner | Needs an identity source (SSO) or an expiry (D-063) |
+| Row-level security on joined sources | Platform owner | Joins with governed sources are refused today (D-065) |

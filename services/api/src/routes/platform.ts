@@ -254,7 +254,7 @@ export function registerPlatformRoutes(app: Hono<any>, ctx: PlatformRouteContext
   app.get('/v1/refresh', editor, wrap(async (c) => c.json({ schedules: await service.listRefresh(principal(c).teamId) })));
   app.put('/v1/dashboards/:id/refresh', editor, wrap(async (c) => {
     const body = parse(RefreshBody, await readJson(c));
-    return c.json({ schedule: await service.setRefresh(principal(c).teamId, idParam(c, 'id'), body.intervalMinutes) });
+    return c.json({ schedule: await service.setRefresh(principal(c), idParam(c, 'id'), body.intervalMinutes) });
   }));
   app.delete('/v1/dashboards/:id/refresh', editor, wrap(async (c) => {
     await service.deleteRecord(principal(c).teamId, 'refresh', idParam(c, 'id'));
@@ -265,7 +265,7 @@ export function registerPlatformRoutes(app: Hono<any>, ctx: PlatformRouteContext
   app.get('/v1/metrics-catalog', wrap(async (c) => c.json({ metrics: await service.metricCatalog.get(principal(c).teamId) })));
   app.put('/v1/metrics-catalog/:name', editor, wrap(async (c) => {
     const name = c.req.param('name') ?? '';
-    if (!METRIC_NAME.test(name)) throw new HttpError(400, 'invalid_name', 'Metric names start with a letter and use letters, digits or "_".');
+    if (!METRIC_NAME.test(name)) throw new HttpError(400, 'invalid_name', 'Metric names are lower-case letters, digits and "_", starting with a letter.');
     const body = parse(MetricBody, await readJson(c));
     return c.json({ metric: await service.putMetric(principal(c).teamId, name, body) });
   }));

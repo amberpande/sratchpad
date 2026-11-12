@@ -60,6 +60,8 @@ export interface Subscription {
   includeKpis: boolean;
   owner: string;
   ownerRole: 'editor' | 'viewer';
+  /** The owner's row-level security attributes at creation: the job sees exactly what they saw. */
+  ownerAttributes?: Record<string, string[]>;
   nextRunAt: string;
   /** The share created for the latest email (revoked when the next one is sent). */
   shareId?: string;
@@ -93,6 +95,7 @@ export interface Alert {
   webhookSecret?: string;
   owner: string;
   ownerRole: 'editor' | 'viewer';
+  ownerAttributes?: Record<string, string[]>;
   state: 'unknown' | 'ok' | 'firing';
   lastValue?: number | null;
   lastCheckedAt?: string;
@@ -104,6 +107,10 @@ export interface Alert {
 export interface RefreshSchedule {
   dashboardId: string;
   intervalMinutes: number;
+  /** Who set it: refresh runs as them (row-level security), so it warms what they would see. */
+  owner?: string;
+  ownerRole?: 'editor' | 'viewer';
+  ownerAttributes?: Record<string, string[]>;
   nextRunAt: string;
   lastRun?: RunRecord;
 }
@@ -124,6 +131,11 @@ export interface PlatformDeps {
 }
 
 const C = { comments: 'comments', favorites: 'favorites', recent: 'recent', subscriptions: 'subscriptions', alerts: 'alerts', refresh: 'refresh', metrics: 'metrics' } as const;
+
+/** The principal a job runs as: its owner, with the attributes captured when it was created. */
+function ownerPrincipal(teamId: string, r: { owner?: string; ownerRole?: 'editor' | 'viewer'; ownerAttributes?: Record<string, string[]> }): Principal {
+  return { teamId, subject: r.owner ?? 'scheduler', role: r.ownerRole ?? 'viewer', ...(r.ownerAttributes ? { attributes: structuredClone(r.ownerAttributes) } : {}) };
+}
 
 const newId = (prefix: string) => `${prefix}_${randomBytes(8).toString('hex')}`;
 const day = (d: Date) => d.toISOString().slice(0, 10);
@@ -355,7 +367,7 @@ export class PlatformService {
   async createSubscription(p: Principal, input: Omit<Subscription, 'id' | 'owner' | 'ownerRole' | 'nextRunAt' | 'lastRun' | 'shareId'>): Promise<Subscription> {
     const dashboard = await this.loadDashboard(p.teamId, input.dashboardId);
     for (const w of input.widgets) if (!dashboard.widgets[w]) throw new PlatformError(422, 'unknown_widget', `Widget "${w}" is not on this dashboard.`);
-    const sub: Subscription = { ...input, id: newId('sub'), owner: p.subject, ownerRole: p.role ?? 'editor', nextRunAt: nextRun(input.schedule, this.now()).toISOString() };
+    const sub: Subscription = { ...input, id: newId('sub'), owner: p.subject, ownerRole: p.role ?? 'editor', ...(p.attributes ? { ownerAttributes: structuredClone(p.attributes) } : {}), nextRunAt: nextRun(input.schedule, this.now()).toISOString() };
     await this.deps.store.put(p.teamId, C.subscriptions, sub.id, sub);
     return sub;
   }
@@ -374,7 +386,7 @@ export class PlatformService {
     let shareId = sub.shareId;
     try {
       const dashboard = await this.loadDashboard(teamId, sub.dashboardId);
-      const owner: Principal = { teamId, subject: sub.owner, role: sub.ownerRole };
+      const owner = ownerPrincipal(teamId, sub);
       const kpiWidgets = sub.includeKpis ? Object.entries(dashboard.widgets).filter(([, w]) => w.type === 'kpi') : [];
       const csvWidgets = sub.widgets.map((id) => [id, dashboard.widgets[id]] as const).filter(([, w]) => w && w.type !== '__unsupported__' && 'query' in w && w.query);
       const queryIds = [...kpiWidgets, ...csvWidgets].map(([, w]) => (w as { query: string }).query);
@@ -397,7 +409,10 @@ export class PlatformService {
       let link: string | undefined;
       if (this.deps.shares && this.deps.viewerBaseUrl) {
         const expiresAt = new Date(at.getTime() + linkLifetimeDays(sub.schedule.frequency) * 86_400_000).toISOString();
-        const { record, token } = newShare({ teamId, dashboardId: sub.dashboardId, audience: 'viewer', label: `Subscription: ${sub.name}`.slice(0, 100), createdBy: sub.owner, expiresAt }, at);
+        const { record, token } = newShare(
+          { teamId, dashboardId: sub.dashboardId, audience: 'viewer', label: `Subscription: ${sub.name}`.slice(0, 100), createdBy: sub.owner, expiresAt, ...(sub.ownerAttributes ? { attributes: structuredClone(sub.ownerAttributes) } : {}) },
+          at,
+        );
         await this.deps.shares.insert(record);
         if (shareId) await this.deps.shares.revoke(teamId, sub.dashboardId, shareId, at.toISOString()).catch(() => false);
         shareId = record.id;
@@ -444,6 +459,7 @@ export class PlatformService {
       id: newId('alr'),
       owner: p.subject,
       ownerRole: p.role ?? 'editor',
+      ...(p.attributes ? { ownerAttributes: structuredClone(p.attributes) } : {}),
       state: 'unknown',
       nextRunAt: this.now().toISOString(),
       ...(input.webhookUrl ? { webhookSecret: randomBytes(24).toString('base64url') } : {}),
@@ -458,7 +474,7 @@ export class PlatformService {
     let next: Alert = { ...alert, lastCheckedAt: at.toISOString(), nextRunAt: new Date(at.getTime() + alert.intervalMinutes * 60_000).toISOString() };
     try {
       const dashboard = await this.loadDashboard(teamId, alert.dashboardId);
-      const owner: Principal = { teamId, subject: alert.owner, role: alert.ownerRole };
+      const owner = ownerPrincipal(teamId, alert);
       const line = (await this.runQueries(owner, dashboard, [alert.queryId], { bypassCache: true })).get(alert.queryId)!;
       if (!line.ok) throw new Error(`${line.error.code}: ${line.error.message}`);
       const value = reduceValue(line.result.rows, alert.field, alert.reduce);
@@ -507,10 +523,17 @@ export class PlatformService {
     return (await this.deps.store.list<RefreshSchedule>(teamId, C.refresh)).map((r) => r.data);
   }
 
-  async setRefresh(teamId: string, dashboardId: string, intervalMinutes: number): Promise<RefreshSchedule> {
-    await this.requireDashboard(teamId, dashboardId);
-    const r: RefreshSchedule = { dashboardId, intervalMinutes, nextRunAt: this.now().toISOString() };
-    await this.deps.store.put(teamId, C.refresh, dashboardId, r);
+  async setRefresh(p: Principal, dashboardId: string, intervalMinutes: number): Promise<RefreshSchedule> {
+    await this.requireDashboard(p.teamId, dashboardId);
+    const r: RefreshSchedule = {
+      dashboardId,
+      intervalMinutes,
+      owner: p.subject,
+      ownerRole: p.role ?? 'editor',
+      ...(p.attributes ? { ownerAttributes: structuredClone(p.attributes) } : {}),
+      nextRunAt: this.now().toISOString(),
+    };
+    await this.deps.store.put(p.teamId, C.refresh, dashboardId, r);
     return r;
   }
 
@@ -521,7 +544,7 @@ export class PlatformService {
     try {
       const dashboard = await this.loadDashboard(teamId, r.dashboardId);
       const ids = dashboard.layout.map((l) => dashboard.widgets[l.i]).flatMap((w) => (w && w.type !== '__unsupported__' && w.query ? [w.query] : []));
-      const lines = await this.runQueries({ teamId, subject: 'scheduler:refresh', role: 'viewer' }, dashboard, ids, { bypassCache: true });
+      const lines = await this.runQueries(ownerPrincipal(teamId, r), dashboard, ids, { bypassCache: true });
       const failed = [...lines.values()].filter((l) => !l.ok).length;
       lastRun = { at: at.toISOString(), status: failed ? 'failed' : 'ok', message: `${lines.size - failed}/${lines.size} queries refreshed.` };
     } catch (error) {
@@ -551,7 +574,8 @@ export class PlatformService {
   }
 }
 
-export const METRIC_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+/** Same rule as the query layer's metric names (data/metrics.ts): lower-case. */
+export const METRIC_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
  * Baseline checks plus workstream A's `validateMetricDefinition` (from data/metrics.ts) when present.
@@ -559,7 +583,7 @@ export const METRIC_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
  */
 export function validateMetric(def: MetricDefinition): string[] {
   const problems: string[] = [];
-  if (!METRIC_NAME.test(def.name)) problems.push('name must start with a letter and use letters, digits or "_" (max 64)');
+  if (!METRIC_NAME.test(def.name)) problems.push('name must be lower-case letters, digits and "_", starting with a letter (max 64)');
   if (def.label !== undefined && (typeof def.label !== 'string' || def.label.length > 200)) problems.push('label must be a string of at most 200 characters');
   if (def.description !== undefined && (typeof def.description !== 'string' || def.description.length > 2000)) problems.push('description must be at most 2000 characters');
   const external = (metricsModule as Record<string, unknown>).validateMetricDefinition;

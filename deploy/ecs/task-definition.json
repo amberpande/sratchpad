@@ -80,6 +80,18 @@
         {
           "name": "BI_AI",
           "value": "auto"
+        },
+        {
+          "name": "SMTP_FROM",
+          "value": "Sratchpad <sratchpad@example.com>"
+        },
+        {
+          "name": "BI_SCHEDULER",
+          "value": "on"
+        },
+        {
+          "name": "BI_WEBHOOK_ALLOWED_HOSTS",
+          "value": ""
         }
       ],
       "secrets": [
@@ -98,6 +110,10 @@
         {
           "name": "BI_METRICS_TOKEN",
           "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/metrics-token"
+        },
+        {
+          "name": "SMTP_URL",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:sratchpad/smtp-url"
         }
       ],
       "healthCheck": {
