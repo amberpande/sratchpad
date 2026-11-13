@@ -4,6 +4,13 @@ What changed, newest first. One entry per change; link the decision (`D-NNN` in
 [`DECISIONS.md`](DECISIONS.md)) when there is one. Keep "Not verified" honest: list what was only
 tested with fakes.
 
+## 2026-11-13
+
+### Fix: dashboard list layout in the Studio
+- The card style (`.dash-list button`) also matched the favorite star, so each star rendered as a second wide card and
+  squeezed the dashboard card into a narrow column. Card styles now apply only to the open button (`.dash-open`); the
+  star sits inside the card on the right. Verified in headless Chrome. No decision entry (no alternative chosen).
+
 ## 2026-11-12
 
 ### Custom SQL for any chart: spec 1.4 (D-070 to D-073)

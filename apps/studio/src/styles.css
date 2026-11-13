@@ -233,8 +233,9 @@ p.banner { border-radius: 6px; }
 .list-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
 .list-head h1 { font-size: 24px; letter-spacing: -0.01em; margin-bottom: 4px; }
 .dash-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.dash-list button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; background: var(--s-panel); border: 1px solid var(--s-border); border-radius: 10px; cursor: pointer; }
-.dash-list button:hover { border-color: var(--s-border-strong); background: #fff; }
+/* The card is the open button only; the favorite star sits inside it on the right (it must not get card styles). */
+.dash-list .dash-open { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 14px 48px 14px 16px; background: var(--s-panel); border: 1px solid var(--s-border); border-radius: 10px; cursor: pointer; }
+.dash-list .dash-open:hover { border-color: var(--s-border-strong); background: #fff; }
 .dash-list strong { font-size: 15px; }
 .center-message { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100vh; }
 

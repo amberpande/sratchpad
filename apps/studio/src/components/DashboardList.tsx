@@ -139,7 +139,7 @@ export function DashboardList({ api, onOpen, onCreate }: { api: StudioApi; onOpe
             const fav = favorites?.has(d.id) ?? false;
             return (
               <li key={d.id} className="dash-row">
-                <button type="button" onClick={() => onOpen(d.id)}>
+                <button type="button" className="dash-open" onClick={() => onOpen(d.id)}>
                   <strong>{d.title}</strong>
                   <span className="muted small">
                     <code>{d.id}</code> · v{d.latestVersion} · updated {new Date(d.updatedAt).toLocaleString()}
