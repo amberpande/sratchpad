@@ -131,7 +131,9 @@ Schemas migrate on boot; concurrent tasks converge.
 ## Security model
 
 - **Identity:** every `/v1` request resolves to a principal: team + role (`editor` / `viewer`), or a
-  share scope (one dashboard, optional pinned version). Static tokens today; SSO planned.
+  share scope (one dashboard, optional pinned version). Single sign-on with any OIDC provider (`oidc.ts`, D-074):
+  signed ID tokens, team and role from IdP groups, row-level attributes from claims; static tokens for service
+  accounts. Browsers use the PKCE code flow (`packages/auth-client`). Optional company sign-in for viewer links (D-075).
 - **Isolation:** every store read is scoped by team; another team's dashboard, upload or share reads as
   "not found". Cache keys include the team.
 - **Least privilege:** viewers and share tokens are read-only; share tokens see one dashboard; clients

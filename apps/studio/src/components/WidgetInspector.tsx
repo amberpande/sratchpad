@@ -242,7 +242,7 @@ function OptionEditor({
   );
 }
 
-const QUERY_FIELDS = /^query\.(dimensions|measures|filters|orderBy|limit|sql|columns)(\.|$)/;
+const QUERY_FIELDS = /^query\.(dimensions|measures|filters|orderBy|limit|sql|columns|fields|calcs|detail|windows|topN|joins|metrics)(\.|$)/;
 const under = (local: string, path: string) => local === path || local.startsWith(`${path}.`);
 
 export function WidgetInspector({ draft, widgetId, issues, fields, dispatch, onRemove, runDraftQuery }: WidgetInspectorProps) {

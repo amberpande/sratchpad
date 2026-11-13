@@ -5,7 +5,7 @@ import type { SourceProvider } from '../sources';
 import { compileQuery, type JoinedRelation, type Relation } from '../sql/compile';
 import { joinedSources } from '../sql/joins';
 import { compileCustomSql, toCustomResult, type SqlQuery, type SqlSourceRelation } from '../sql/custom';
-import { quoteIdent, snowflake, snowflakeKind, type ColumnKind } from '../sql/dialect';
+import { quoteIdent, quoteLiteral, snowflake, snowflakeKind, type ColumnKind } from '../sql/dialect';
 import { toQueryResult } from '../sql/result';
 import { teamSettings, type SnowflakeConfig } from './config';
 import type { SnowflakeDriver } from './driver';
@@ -156,11 +156,19 @@ export class SnowflakeEngine implements Engine, SourceProvider {
   }
 
   /** Tables and views the team's role can see (SHOW reads metadata only; it uses no warehouse). */
-  list(teamId: string): Promise<SourceSummary[]> {
+  list(teamId: string, options: { refresh?: boolean } = {}): Promise<SourceSummary[]> {
+    if (options.refresh) this.listings.delete(teamId);
     return this.memo(this.listings, teamId, this.options.cacheTtlMs ?? 5 * 60_000, async () => {
       const { database } = teamSettings(this.config, teamId);
       const scope = database ? `IN DATABASE ${quoteIdent(database)}` : 'IN ACCOUNT';
-      const rows = await this.driver.execute(teamId, `SHOW OBJECTS ${scope} LIMIT 1000`, []);
+      // Paged: SHOW returns at most 10,000 rows per call; continue FROM the last name, up to 50,000 objects.
+      const rows: Array<Record<string, unknown>> = [];
+      for (let page = 0; page < 5; page++) {
+        const last = rows.at(-1)?.name;
+        const batch = await this.driver.execute(teamId, `SHOW OBJECTS ${scope} LIMIT 10000${last ? ` FROM ${quoteLiteral(String(last))}` : ''}`, []);
+        rows.push(...batch);
+        if (batch.length < 10_000) break;
+      }
       return rows
         .filter((r) => (r.kind === 'TABLE' || r.kind === 'VIEW') && r.schema_name !== 'INFORMATION_SCHEMA')
         .map((r) => {

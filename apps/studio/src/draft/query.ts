@@ -11,6 +11,7 @@ import {
   type MetricRef,
   type QueryInput,
   type SqlColumn,
+  type RowField,
   type TimeGrain,
   type TopN,
   type WindowCalc,
@@ -37,13 +38,17 @@ export interface NormalQuery {
   topN?: TopN;
   joins?: Join[];
   metrics?: MetricRef[];
+  // Spec 1.4: row-level fields (computed per row; usable like source columns).
+  fields?: RowField[];
+  /** Spec 1.4 level of detail: aggregate per finer dimensions first. */
+  detail?: QueryInput['detail'];
   // Spec 1.4: custom SQL (replaces dimensions/measures/calcs/…) and its declared result columns.
   sql?: string;
   columns?: SqlColumn[];
 }
 
 /** The spec 1.3 query fields edited in the "Calculations" section. */
-export const EXTENSION_KEYS = ['calcs', 'windows', 'topN', 'joins', 'metrics'] as const;
+export const EXTENSION_KEYS = ['calcs', 'windows', 'topN', 'joins', 'metrics', 'fields', 'detail'] as const;
 
 const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
@@ -61,6 +66,8 @@ export function normalizeQuery(q: QueryInput | undefined): NormalQuery {
     ...(q?.topN ? { topN: q.topN as TopN } : {}),
     ...(Array.isArray(q?.joins) ? { joins: q.joins as Join[] } : {}),
     ...(Array.isArray(q?.metrics) ? { metrics: q.metrics as MetricRef[] } : {}),
+    ...(Array.isArray(q?.fields) ? { fields: q.fields as RowField[] } : {}),
+    ...(q?.detail ? { detail: q.detail } : {}),
     ...(typeof q?.sql === 'string' ? { sql: q.sql } : {}),
     ...(Array.isArray(q?.columns) ? { columns: q.columns as SqlColumn[] } : {}),
   };
@@ -80,6 +87,8 @@ export function compactQuery(q: NormalQuery): QueryInput {
     ...(q.topN ? { topN: q.topN } : {}),
     ...(q.joins?.length ? { joins: q.joins } : {}),
     ...(q.metrics?.length ? { metrics: q.metrics } : {}),
+    ...(q.fields?.length ? { fields: q.fields } : {}),
+    ...(q.detail ? { detail: q.detail } : {}),
     ...(q.sql !== undefined ? { sql: q.sql } : {}),
     ...(q.sql !== undefined && q.columns?.length ? { columns: q.columns } : {}),
   };
@@ -312,6 +321,7 @@ export function detectedColumns(result: { columns: Array<{ name: string; type: s
     const before = previous.find((p) => p.name === c.name);
     const type = (['string', 'number', 'time', 'boolean'] as const).find((t) => t === c.type) ?? 'string';
     const role = before?.role ?? (type === 'number' ? 'measure' : 'dimension');
-    return { name: c.name, role, ...(role === 'dimension' ? { type } : {}) };
+    // A detected time column from date_trunc('<grain>', …) keeps the grain the author set before.
+    return { name: c.name, role, ...(role === 'dimension' ? { type } : {}), ...(role === 'dimension' && type === 'time' && before?.grain ? { grain: before.grain } : {}) };
   });
 }

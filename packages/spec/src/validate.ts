@@ -19,7 +19,8 @@ import {
 import { DashboardThemeSchema, STYLE_SINCE, themeContrastProblems, WidgetStyleSchema, type DashboardTheme, type WidgetStyle } from './style';
 import type { Issue, ValidDashboard } from './types';
 import type { ExtContext } from './ext';
-import { validateQueryExtension } from './query-ext';
+import { sqlParamRefs, validateQueryExtension } from './query-ext';
+import { ValueSetSchema, type ValueSet } from './schema';
 import { paramTypeSince, validateParamExtension } from './params-ext';
 import { layoutItemTab, validateDashboardExtension, type DashboardTab } from './dashboard-ext';
 import { validateWidgetExtension } from './widget-ext';
@@ -444,6 +445,46 @@ export function validateDashboard(input: unknown, options: ValidateOptions = {})
     params[pid] = param;
   }
 
+  // visibleWhen (1.4) must name a control of this dashboard.
+  for (const [wid, w] of Object.entries(widgets)) {
+    const rule = (w as { visibleWhen?: { param: string } }).visibleWhen;
+    if (rule && !Object.hasOwn(params, rule.param)) errors.push({ path: `widgets.${wid}.visibleWhen.param`, code: 'unknown_reference', message: `Param "${rule.param}" is not defined in params.` });
+  }
+
+  // ── sets (1.4, D-086) ──
+  let sets: Record<string, ValueSet> | undefined;
+  const rawSets = (input as Record<string, unknown>).sets;
+  if (rawSets !== undefined && gate('sets', '1.4')) {
+    if (!isRecord(rawSets)) errors.push({ path: 'sets', code: 'invalid_type', message: '"sets" must be an object of named sets.' });
+    else sets = parseEntries('sets', rawSets, ValueSetSchema);
+  }
+  for (const [qid, q] of Object.entries(queries)) {
+    const check = (path: string, field: string, setId: string) => {
+      const s = sets?.[setId];
+      if (!s) errors.push({ path, code: 'unknown_reference', message: `Set "${setId}" is not defined in "sets".` });
+      else if (s.field !== field) errors.push({ path, code: 'invalid_value', message: `Set "${setId}" holds values of "${s.field}", not "${field}".` });
+    };
+    q.dimensions.forEach((d, i) => {
+      if (d.set === undefined || !gate(`queries.${qid}.dimensions.${i}.set`, '1.4')) return;
+      check(`queries.${qid}.dimensions.${i}.set`, d.field, d.set);
+      if (d.grain || d.bin || d.buckets) errors.push({ path: `queries.${qid}.dimensions.${i}`, code: 'invalid_value', message: 'A dimension can have only one of grain, bin, buckets or set.' });
+    });
+    q.filters.forEach((f, i) => f.set !== undefined && gate(`queries.${qid}.filters.${i}.set`, '1.4') && check(`queries.${qid}.filters.${i}.set`, f.field, f.set));
+  }
+
+  // Custom SQL {{param}} placeholders must name a param of this dashboard (D-080). A filter param that is
+  // neither bound nor used by a placeholder does nothing: warn.
+  const placeheld = new Set(Object.values(queries).flatMap((q) => (typeof q.sql === 'string' ? sqlParamRefs(q.sql) : [])));
+  for (const [pid, p] of Object.entries(params)) {
+    if (!(p as { bind: string[] }).bind.length && !placeheld.has(pid)) warnings.push({ path: `params.${pid}.bind`, code: 'unused_param', message: `"${pid}" is not bound to any query and no SQL uses {{${pid}}}.` });
+  }
+  for (const [qid, q] of Object.entries(queries)) {
+    if (typeof q.sql !== 'string') continue;
+    for (const ref of sqlParamRefs(q.sql)) {
+      if (!Object.hasOwn(raw.params ?? {}, ref)) errors.push({ path: `queries.${qid}.sql`, code: 'unknown_reference', message: `{{${ref}}} is not a param of this dashboard; add a "${ref}" control or remove the placeholder.` });
+    }
+  }
+
   // Dashboard-level extensions (workstream B), read from the raw input's top-level keys.
   const dashboardExtension = validateDashboardExtension(input, { ...ext, widgets, queries, layout });
   if (errors.length) return { ok: false, errors, warnings, compatibility };
@@ -463,6 +504,7 @@ export function validateDashboard(input: unknown, options: ValidateOptions = {})
       layout,
       params,
       ...(theme ? { theme } : {}),
+      ...(sets ? { sets } : {}),
       ...dashboardExtension,
     },
   };

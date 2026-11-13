@@ -1,5 +1,5 @@
 import type { Recommendation, RecommendationResponse, SourceSummary } from '@yourorg/bi-spec';
-import { useRef, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import { groupFields, sourceKey } from '../draft/fields';
 import type { FieldInfo } from '../draft/types';
 import type { SourcesStatus } from '../hooks/useSources';
@@ -12,6 +12,7 @@ export type AsyncStatus = { status: 'idle' } | { status: 'busy' } | { status: 'u
 export interface DataPanelProps {
   sources: SourceSummary[];
   sourcesStatus: SourcesStatus;
+  onRefreshSources?: () => void;
   active: SourceSummary | null;
   onSelectSource: (s: SourceSummary) => void;
   onUpload: (file: File) => void;
@@ -105,6 +106,7 @@ export function DataPanel(props: DataPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const { active, profile, fields } = props;
   const groups = groupFields(fields);
+  const [sourceFilter, setSourceFilter] = useState('');
   const suggestDisabled = !active || props.suggest.status === 'busy' || props.suggest.status === 'unsupported';
 
   return (
@@ -114,6 +116,17 @@ export function DataPanel(props: DataPanelProps) {
         <label className="field-label" htmlFor="source-select">
           Source
         </label>
+        {(props.sources.length > 12 || sourceFilter) && (
+          <input
+            className="source-filter"
+            type="search"
+            placeholder={`Filter ${props.sources.length} sources…`}
+            aria-label="Filter sources"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+          />
+        )}
+        <div className="row gap-s">
         <select
           id="source-select"
           value={active ? sourceKey(active.source) : ''}
@@ -123,13 +136,19 @@ export function DataPanel(props: DataPanelProps) {
           }}
         >
           {!active && <option value="">Choose a source…</option>}
-          {props.sources.map((s) => (
+          {props.sources.filter((s) => !sourceFilter || s.name.toLowerCase().includes(sourceFilter.toLowerCase()) || (active && sourceKey(s.source) === sourceKey(active.source))).map((s) => (
             <option key={sourceKey(s.source)} value={sourceKey(s.source)}>
               {s.name} · {s.source.type}
               {s.rowCount !== undefined ? ` · ${s.rowCount.toLocaleString()} rows` : ''}
             </option>
           ))}
         </select>
+        {props.onRefreshSources && (
+          <button type="button" className="btn ghost icon small" title="Refresh the list (new tables appear at once)" aria-label="Refresh sources" onClick={props.onRefreshSources}>
+            ↻
+          </button>
+        )}
+        </div>
         {props.sourcesStatus === 'unsupported' && <p className="note small">This backend can’t list sources yet (Phase 2). Showing the sample dataset.</p>}
         {props.sourcesStatus === 'error' && <p className="note small">Couldn’t list sources. Showing the sample dataset.</p>}
 

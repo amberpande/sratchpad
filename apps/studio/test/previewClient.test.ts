@@ -12,6 +12,22 @@ function spec() {
 }
 
 describe('preview data client', () => {
+  it('sends cross-filter variants as their own entries (click-to-filter in the Studio, D-087)', async () => {
+    const bodies: Array<{ queries: Array<string | { query: string; key: string; filters?: unknown[] }> }> = [];
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body)) as (typeof bodies)[number];
+      bodies.push(body);
+      return ndjson(body.queries.map((q, i) => ({ id: typeof q === 'string' ? q : q.key, ok: true, result: result(i) })));
+    });
+    const view = new PreviewDataClient({ apiUrl: '/bi-api', token: 't', fetch: fetch as unknown as typeof globalThis.fetch }).forDraft(spec(), null);
+    const runtime = { filters: [{ field: 'region', op: 'in' as const, values: ['Europe'] }] };
+    const [plain, filtered] = await Promise.all([view.fetchQuery(req('q_kpi')), view.fetchQuery({ ...req('q_kpi'), runtime })]);
+    expect(bodies[0]!.queries[0]).toBe('q_kpi');
+    expect(bodies[0]!.queries[1]).toMatchObject({ query: 'q_kpi', filters: runtime.filters });
+    expect(plain.rows[0]!.v).toBe(0);
+    expect(filtered.rows[0]!.v).toBe(1);
+  });
+
   it('batches one tick of requests into one POST of the draft and caches by query content', async () => {
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init!.body)) as { queries: string[]; spec: { id: string } };

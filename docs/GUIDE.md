@@ -4,15 +4,18 @@ For developers who build dashboards and the people they share them with.
 
 ## Signing in
 
-Open Sratchpad (`https://<your host>/`, or http://localhost:5175 in development). In production the
-Studio asks for an **access token** from your Sratchpad admin; it is checked and kept for that browser
-tab only. If it expires or is revoked you are sent back to sign in. (Single sign-on will replace tokens.)
+Open Sratchpad (`https://<your host>/`, or http://localhost:5175 in development). With single sign-on
+configured, click **Sign in with your company account**; your team and role come from your company groups.
+Without it (or for service accounts) paste an **access token** from your Sratchpad admin. Either way the
+sign-in is kept for that browser tab only, and you are sent back to sign in when it expires or is revoked.
+**Sign out** is at the top of the dashboard list. If your admin requires it, viewer links also ask you to sign in.
 
 ## Building a dashboard
 
 1. **New dashboard** on the list page, or open an existing one.
 2. **Pick or upload a source** in the Data panel: the sample `orders` data, your team's uploads, or
-   Snowflake tables your team's role can see. Upload CSV (UTF-8) or Excel (.xlsx, first sheet, row 1 =
+   Snowflake tables your team's role can see (type in the filter box above a long list; **↻** re-lists so a new table
+   shows up at once). Upload CSV (UTF-8) or Excel (.xlsx, first sheet, row 1 =
    headers), up to 50 MB. Fields appear grouped as time, measures and dimensions.
 3. **Add widgets** from the palette or by clicking/dragging a field. Edit the selected widget in the
    inspector (fields, aggregation, filters, sort, formatting). Drag and resize on the grid.
@@ -31,12 +34,28 @@ joins, catalog metrics" a small JSON box adds running totals, % of total, rank, 
 year-over-year change, top-N with "Other", joins to another source of the same kind, and team catalog metrics.
 Buckets (e.g. amount < 100 → "Small") are written in the JSON view.
 
+**Row fields, level of detail, sets.** **Row fields** (in the query editor) are per-row formulas such as
+`amount * fx_rate` or `year(order_date)`; use the name like any column. **Level of detail** (`detail` in the advanced
+box) answers "average of each customer's total, by region": detail dimension `customer_id`, detail measure
+`sum(amount) as customer_total`, then the widget's measure is `avg` of `customer_total`. Add `"calendar": true` to a
+year-over-year window to compare by date when periods are missing. **Sets** (JSON view, top-level `sets`) name a
+list of values once ("top customers") and group or filter by it in any widget. Line charts have a **trend** option
+(straight line or moving average, with an optional forecast and its range); scatter plots can **cluster** points.
+
+**More interactivity.** Drag across a line chart's dates to filter other widgets by that whole range. A widget's
+drill can start on its series (`"dimension": 1`), so clicking a channel's line drills into it. A widget can show only
+when a control has a value (`visibleWhen` in the JSON view). Charts are keyboard-operable: Tab to a chart, use the
+arrow keys and press Enter to select. Click-to-filter now also works in the Studio canvas. Maps accept ISO country
+codes (`DE`, `DEU`) and a US counties basemap. Theme fonts include **inherit** (use your app's font when embedded).
+
 **Custom SQL (developers).** In a widget's **Data** tab, switch the query from **Visual builder** to **SQL**. The
 Studio writes a starting SELECT from the current query; edit it, then click **Run and detect columns**. The result
 columns appear below it: numbers become measures, the rest dimensions (change the role or type if needed), and the
 chart picks them up. Name this dashboard's data sources by their id (`FROM orders`); on Snowflake you can also use
 any table your team's role can read (`DB.SCHEMA.TABLE`). Use the engine's SQL (Snowflake SQL on Snowflake, DuckDB
-SQL on uploads and sample data); one SELECT only. Dashboard filters apply to the result, so a date range filter on
+SQL on uploads and sample data); one SELECT only. To filter before aggregating, use a control by its id:
+`WHERE order_date BETWEEN {{range.from}} AND {{range.to}} AND region IN ({{regions}})` (values are bound safely; an
+empty control is NULL, so write `({{ch}} IS NULL OR channel = {{ch}})` for "all"). Dashboard filters apply to the result, so a date range filter on
 `order_date` needs the SQL to return `order_date` (e.g. `date_trunc('month', order_date) AS order_date`); the
 Studio flags filters it cannot apply. Not available: drill-down, measure switches, catalog metrics, and SQL on
 uploads stored in Snowflake or where row-level security applies to your team. Switching back to the visual builder
@@ -71,12 +90,18 @@ dashboard header prints, or saves as PDF from the print dialog.
 
 **Schedules (editors).** *Schedule*: email a summary daily, weekly or monthly at a time in your time zone, with KPI
 values, a link to the dashboard (valid a few days; each email has a new one) and CSV files of chosen widgets. Emails
-show the dashboard as **you** see it. *Scheduled refresh* keeps a busy dashboard's results freshly cached.
+show the dashboard as **you** see it. Tick **Attach a PDF report** for a PDF with the KPIs and the chosen tables.
+*Scheduled refresh* keeps a busy dashboard's results freshly cached.
 
 **Alerts (editors).** Watch a number (e.g. sum of revenue) and get an email or a webhook when it crosses a threshold
-or changes by more than a percentage. You are notified when it starts firing, not on every check.
+or changes by more than a percentage. You are notified when it starts firing, not on every check. **Snooze** silences
+an alert for an hour to a week; **Escalate to** emails another list if it is still firing after a while.
 
-**Metric catalog.** Define metrics like `revenue` once for the team; queries can reference them by name.
+**Usage.** The **Usage** button shows views over 30 days and, per widget, how often its data loaded and how often people
+clicked into it (filters, drills).
+
+**Metric catalog.** Define metrics like `revenue` once for the team; queries can reference them by name. **History**
+shows every change (who and when) with **Restore**. Your admin can limit changes to named metric owners.
 
 ## The assistant (chat)
 

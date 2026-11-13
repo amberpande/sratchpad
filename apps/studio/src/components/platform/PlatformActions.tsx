@@ -20,7 +20,7 @@ import './platform.css';
  * dashboard (they run what was saved, never the draft).
  */
 
-type Panel = 'comments' | 'schedule' | 'alerts' | 'metrics' | null;
+type Panel = 'comments' | 'schedule' | 'alerts' | 'metrics' | 'usage' | null;
 
 export function PlatformActions({ api, draft, savedVersion, dirty }: { api: StudioApi; draft: DraftSpec; savedVersion: number; dirty: boolean }) {
   const [status, setStatus] = useState<PlatformStatus | null>(null);
@@ -63,11 +63,15 @@ export function PlatformActions({ api, draft, savedVersion, dirty }: { api: Stud
         <button type="button" className="btn ghost small" title="Team metric catalog" onClick={() => setOpen('metrics')}>
           Metrics
         </button>
+        <button type="button" className="btn ghost small" disabled={!saved} title={needSave ?? 'Views and per-widget usage'} onClick={() => setOpen('usage')}>
+          Usage
+        </button>
       </div>
       {open === 'comments' && <CommentsDialog api={api} draft={draft} status={status} onClose={close} />}
       {open === 'schedule' && <ScheduleDialog api={api} draft={draft} status={status} dirty={dirty} onClose={close} />}
       {open === 'alerts' && <AlertsDialog api={api} draft={draft} status={status} onClose={close} />}
       {open === 'metrics' && <MetricsDialog api={api} editor={editor} onClose={close} />}
+      {open === 'usage' && <UsageDialog api={api} draft={draft} onClose={close} />}
     </>
   );
 }
@@ -198,6 +202,7 @@ function ScheduleDialog({ api, draft, status, dirty, onClose }: { api: StudioApi
   const [dayOfMonth, setDayOfMonth] = useState(1);
   const [timezone, setTimezone] = useState(localTz);
   const [includeKpis, setIncludeKpis] = useState(true);
+  const [attachPdf, setAttachPdf] = useState(false);
   const [widgets, setWidgets] = useState<string[]>([]);
   const run = (fn: () => Promise<unknown>) => void fn().then(reload, (err: unknown) => setError((err as Error).message));
 
@@ -211,6 +216,7 @@ function ScheduleDialog({ api, draft, status, dirty, onClose }: { api: StudioApi
         schedule: { frequency, time, timezone, ...(frequency === 'weekly' ? { dayOfWeek } : {}), ...(frequency === 'monthly' ? { dayOfMonth } : {}) },
         widgets,
         includeKpis,
+        ...(attachPdf ? { attachPdf } : {}),
       }),
     );
   };
@@ -292,6 +298,9 @@ function ScheduleDialog({ api, draft, status, dirty, onClose }: { api: StudioApi
         <label className="row gap-s small">
           <input type="checkbox" checked={includeKpis} onChange={(e) => setIncludeKpis(e.target.checked)} /> Include KPI values in the email
         </label>
+        <label className="row gap-s small">
+          <input type="checkbox" checked={attachPdf} onChange={(e) => setAttachPdf(e.target.checked)} /> Attach a PDF report (KPIs and the tables below)
+        </label>
         <fieldset className="platform-checks">
           <legend className="small muted">Attach data as CSV</legend>
           {Object.keys(draft.widgets)
@@ -366,6 +375,8 @@ function AlertsDialog({ api, draft, status, onClose }: { api: StudioApi; draft: 
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [recipients, setRecipients] = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [escalateTo, setEscalateTo] = useState('');
+  const [escalateAfter, setEscalateAfter] = useState(60);
   const [secret, setSecret] = useState<string | null>(null);
   const effectiveField = field && numeric.includes(field) ? field : (numeric[0] ?? '');
   const run = (fn: () => Promise<unknown>) => void fn().then(reload, (err: unknown) => setError((err as Error).message));
@@ -384,6 +395,7 @@ function AlertsDialog({ api, draft, status, onClose }: { api: StudioApi; draft: 
         intervalMinutes,
         recipients: parseEmails(recipients),
         ...(webhookUrl.trim() ? { webhookUrl: webhookUrl.trim() } : {}),
+        ...(parseEmails(escalateTo).length ? { escalateTo: parseEmails(escalateTo), escalateAfterMinutes: escalateAfter } : {}),
       });
       setSecret(res.webhookSecret ?? null);
     });
@@ -409,8 +421,23 @@ function AlertsDialog({ api, draft, status, onClose }: { api: StudioApi; draft: 
                   {a.reduce}({a.field}) {OPS.find(([k]) => k === a.op)?.[1] ?? a.op} {a.threshold} · every {a.intervalMinutes} min
                   {a.lastValue !== undefined ? ` · last value ${a.lastValue ?? '–'}` : ''}
                   {a.lastError ? ` · ${a.lastError}` : ''}
+                  {a.snoozedUntil && Date.parse(a.snoozedUntil) > Date.now() ? ` · snoozed until ${new Date(a.snoozedUntil).toLocaleString()}` : ''}
+                  {a.escalateTo?.length ? ` · escalates to ${a.escalateTo.join(', ')} after ${a.escalateAfterMinutes} min` : ''}
                 </span>
               </div>
+              {a.snoozedUntil && Date.parse(a.snoozedUntil) > Date.now() ? (
+                <button type="button" className="btn small ghost" onClick={() => run(() => api.snoozeAlert(a.id, 0))}>
+                  Unsnooze
+                </button>
+              ) : (
+                <select className="btn small ghost" aria-label={`Snooze ${a.name}`} value="" onChange={(e) => e.target.value && run(() => api.snoozeAlert(a.id, Number(e.target.value)))}>
+                  <option value="">Snooze…</option>
+                  <option value="60">1 hour</option>
+                  <option value="480">8 hours</option>
+                  <option value="1440">1 day</option>
+                  <option value="10080">1 week</option>
+                </select>
+              )}
               <button type="button" className="btn small" onClick={() => run(() => api.testAlert(a.id))}>
                 Check now
               </button>
@@ -489,6 +516,20 @@ function AlertsDialog({ api, draft, status, onClose }: { api: StudioApi; draft: 
             Webhook (https)
             <input value={webhookUrl} placeholder="https://hooks.example.com/…" onChange={(e) => setWebhookUrl(e.target.value)} />
           </label>
+          <label className="field-label">
+            Escalate to (if still firing)
+            <input value={escalateTo} placeholder="manager@example.com" onChange={(e) => setEscalateTo(e.target.value)} />
+          </label>
+          <label className="field-label">
+            Escalate after
+            <select value={escalateAfter} onChange={(e) => setEscalateAfter(Number(e.target.value))}>
+              {[30, 60, 240, 1440].map((m) => (
+                <option key={m} value={m}>
+                  {m < 60 ? `${m} minutes` : m === 60 ? '1 hour' : m === 1440 ? '1 day' : `${m / 60} hours`}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <button type="submit" className="btn primary small" disabled={!queryId || !effectiveField || (!parseEmails(recipients).length && !webhookUrl.trim())}>
           Create alert
@@ -524,6 +565,8 @@ function MetricsDialog({ api, editor, onClose }: { api: StudioApi; editor: boole
     setError(null);
     run(() => api.putMetric(name, { ...def, ...(label ? { label } : {}), ...(description ? { description } : {}) }));
   };
+  const [history, setHistory] = useState<{ name: string; versions: Awaited<ReturnType<StudioApi['metricHistory']>> } | null>(null);
+  const showHistory = (name: string) => void api.metricHistory(name).then((versions) => setHistory({ name, versions }), (err: unknown) => setError((err as Error).message));
   const edit = (m: CatalogMetric) => {
     const { name: n, label: l, description: d, ...rest } = m;
     setName(n);
@@ -552,6 +595,9 @@ function MetricsDialog({ api, editor, onClose }: { api: StudioApi; editor: boole
                   <button type="button" className="btn small ghost" onClick={() => edit(m)}>
                     Edit
                   </button>
+                  <button type="button" className="btn small ghost" onClick={() => showHistory(m.name)}>
+                    History
+                  </button>
                   <button type="button" className="btn small ghost danger" onClick={() => run(() => api.deleteMetric(m.name))}>
                     Delete
                   </button>
@@ -560,6 +606,36 @@ function MetricsDialog({ api, editor, onClose }: { api: StudioApi; editor: boole
             </li>
           ))}
         </ul>
+      )}
+      {history && (
+        <section aria-label={`History of ${history.name}`}>
+          <h4>
+            History of <code>{history.name}</code>{' '}
+            <button type="button" className="btn small ghost" onClick={() => setHistory(null)}>
+              Close
+            </button>
+          </h4>
+          {!history.versions.length && <p className="muted small">No recorded changes yet.</p>}
+          <ul className="platform-list">
+            {history.versions.map((v) => (
+              <li key={v.version}>
+                <div className="grow">
+                  <strong>
+                    v{v.version} · {v.action}
+                  </strong>
+                  <span className="muted small">
+                    {v.by} · {new Date(v.at).toLocaleString()} · <code>{JSON.stringify({ ...v.metric, name: undefined })}</code>
+                  </span>
+                </div>
+                {editor && v.action === 'saved' && (
+                  <button type="button" className="btn small ghost" onClick={() => run(() => api.putMetric(history.name, { ...v.metric, name: undefined }).then(() => showHistory(history.name)))}>
+                    Restore
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {editor && (
         <form className="platform-form" onSubmit={save} aria-label="Metric definition">
@@ -585,6 +661,46 @@ function MetricsDialog({ api, editor, onClose }: { api: StudioApi; editor: boole
             Save metric
           </button>
         </form>
+      )}
+    </Modal>
+  );
+}
+
+// ── usage (D-095) ──
+
+function UsageDialog({ api, draft, onClose }: { api: StudioApi; draft: DraftSpec; onClose: () => void }) {
+  const load = useCallback(() => api.dashboardUsage(draft.id), [api, draft.id]);
+  const { data, error } = useLoad(load);
+  return (
+    <Modal title="Usage (last 30 days)" onClose={onClose} wide>
+      {error && <p className="note small">{error}</p>}
+      {data && (
+        <>
+          <p>
+            <strong>{data.total.toLocaleString()}</strong> views
+          </p>
+          <table className="usage-table">
+            <thead>
+              <tr>
+                <th>Widget</th>
+                <th>Data loads</th>
+                <th>Clicks (filters, drills)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.widgets.map((w) => (
+                <tr key={w.widgetId}>
+                  <td>
+                    {w.title ?? w.widgetId} <span className="muted small">{w.type}</span>
+                  </td>
+                  <td>{w.loads.toLocaleString()}</td>
+                  <td>{w.interactions.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted small">Widgets that share a query share its numbers.</p>
+        </>
       )}
     </Modal>
   );

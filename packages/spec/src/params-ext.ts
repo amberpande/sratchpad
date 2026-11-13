@@ -40,7 +40,7 @@ export const MultiSelectParamSchema = z.object({
   optionsQuery: z.object({ query: z.string().regex(idPattern), field }).strict().optional(),
   /** Empty = no filter. */
   default: z.array(listScalar).max(100).default([]),
-  bind: z.array(filtersBind).min(1),
+  bind: z.array(filtersBind),
 });
 
 export const RangeParamSchema = z.object({
@@ -53,7 +53,7 @@ export const RangeParamSchema = z.object({
   step: z.number().positive().optional(),
   /** [low, high]; either end may be null (open). null = no filter. */
   default: z.tuple([bound, bound]).nullable().default(null),
-  bind: z.array(filtersBind).min(1),
+  bind: z.array(filtersBind),
 });
 
 export const SearchParamSchema = z.object({
@@ -63,7 +63,7 @@ export const SearchParamSchema = z.object({
   match: z.enum(['contains', 'starts_with', 'ends_with']).default('contains'),
   /** Empty = no filter. */
   default: z.string().max(200).default(''),
-  bind: z.array(filtersBind).min(1),
+  bind: z.array(filtersBind),
 });
 
 export const MeasureOptionSchema = z

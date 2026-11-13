@@ -212,6 +212,33 @@ const orderCases: Case[] = [
       { as: 'ytd_running', type: 'running_total', measure: 'revenue', order: 'order_date' },
     ],
   }],
+  ['1.4: calendar year-over-year by month and channel', {
+    dimensions: [{ field: 'order_date', grain: 'month' }, { field: 'channel' }],
+    measures: [{ field: 'amount', agg: 'sum', as: 'revenue' }],
+    filters: [{ field: 'amount', op: 'gte', value: 4500 }],
+    windows: [
+      { as: 'yoy', type: 'percent_change', measure: 'revenue', order: 'order_date', partition: ['channel'], offset: 12, calendar: true },
+      { as: 'mom', type: 'difference', measure: 'revenue', order: 'order_date', partition: ['channel'], calendar: true },
+    ],
+  }],
+  ['1.4: row-level fields as measure, dimension and filter', {
+    fields: [
+      { as: 'unit_price', expr: 'amount / quantity' },
+      { as: 'order_year', expr: 'year(order_date)' },
+      { as: 'weekday', expr: 'weekday(order_date)' },
+      { as: 'big', expr: 'round(amount * 1.1, 2)' },
+    ],
+    dimensions: [{ field: 'order_year' }, { field: 'weekday' }],
+    measures: [{ field: 'unit_price', agg: 'avg' }, { field: 'big', agg: 'sum' }],
+    filters: [{ field: 'unit_price', op: 'gt', value: 50 }],
+  }],
+  ['1.4: level of detail: average customer total by region, big customers only', {
+    dimensions: [{ field: 'region' }, { field: 'order_date', grain: 'quarter', as: 'quarter' }],
+    detail: { dimensions: [{ field: 'customer_id' }], measures: [{ field: 'amount', agg: 'sum', as: 'customer_total' }, { field: '*', agg: 'count', as: 'customer_orders' }] },
+    measures: [{ field: 'customer_total', agg: 'avg', as: 'avg_customer_total' }, { field: 'customer_total', agg: 'max' }, { field: 'customer_orders', agg: 'median' }, { field: '*', agg: 'count', as: 'customers' }],
+    filters: [{ field: 'status', op: 'eq', value: 'paid' }, { field: 'customer_total', op: 'gte', value: 1000 }],
+    orderBy: [{ field: 'avg_customer_total', dir: 'desc' }],
+  }],
   ['1.3: top 5 customers plus Other', {
     dimensions: [{ field: 'customer_id' }],
     measures: [{ field: 'amount', agg: 'sum', as: 'revenue' }, { field: 'amount', agg: 'avg', as: 'avg_amount' }, { field: '*', agg: 'count', as: 'orders' }],

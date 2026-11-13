@@ -1,3 +1,4 @@
+import { parseAttributeClaims, parseGroupMap, type OidcGroupMapping } from './oidc';
 import { DEV_TOKENS } from './auth';
 import { loadSnowflakeConfig, type SnowflakeConfig } from './data/snowflake/config';
 import { loadSnowflakeUploadsConfig, type SnowflakeUploadsConfig } from './data/files/iceberg';
@@ -40,6 +41,22 @@ export interface Config {
   uploads: 'local' | 'snowflake';
   snowflakeUploads: SnowflakeUploadsConfig | null;
   tokens: string;
+  /** Single sign-on (D-074); null when OIDC_ISSUER is unset. */
+  oidc: null | {
+    issuer: string;
+    clientId: string;
+    groupsClaim: string;
+    groupMap: Record<string, OidcGroupMapping>;
+    attributeClaims: Record<string, string>;
+    /** Scopes the browser sign-in asks for. */
+    scopes: string;
+  };
+  /** Viewer links also need a company sign-in of the share's team (BI_VIEWER_LOGIN=on, needs OIDC). */
+  viewerLogin: boolean;
+  /** Teams allowed to use AI features (BI_AI_TEAMS, comma-separated); null = every team (D-077). */
+  aiTeams: string[] | null;
+  /** BI_METRIC_OWNERS: {"team-a": ["ana@example.com"]}; teams not listed: every editor (D-078). */
+  metricOwners: Record<string, string[]>;
   corsOrigins: string[];
   /** Seed examples/dashboards on start (always on for the in-memory store). */
   seed: boolean;
@@ -107,8 +124,21 @@ function oneOf<T extends string>(raw: string | undefined, allowed: readonly T[],
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const production = env.NODE_ENV === 'production';
-  const tokens = env.BI_TOKENS ?? (production ? undefined : DEV_TOKENS);
-  if (!tokens) throw new Error('BI_TOKENS must be set when NODE_ENV=production; the built-in dev tokens are disabled.');
+  const oidc = env.OIDC_ISSUER
+    ? {
+        issuer: env.OIDC_ISSUER,
+        clientId: env.OIDC_CLIENT_ID || (() => { throw new Error('OIDC_CLIENT_ID is required with OIDC_ISSUER.'); })(),
+        groupsClaim: env.OIDC_GROUPS_CLAIM || 'groups',
+        groupMap: parseGroupMap(env.OIDC_GROUP_MAP),
+        attributeClaims: parseAttributeClaims(env.OIDC_ATTRIBUTE_CLAIMS),
+        scopes: env.OIDC_SCOPES || 'openid profile email',
+      }
+    : null;
+  // With SSO, static tokens are optional (service accounts); without it, production needs them.
+  const tokens = env.BI_TOKENS ?? (production ? (oidc ? '' : undefined) : DEV_TOKENS);
+  if (tokens === undefined) throw new Error('BI_TOKENS (or OIDC_ISSUER for single sign-on) must be set when NODE_ENV=production; the built-in dev tokens are disabled.');
+  const viewerLogin = oneOf(env.BI_VIEWER_LOGIN, ['on', 'off'] as const, 'off', 'BI_VIEWER_LOGIN') === 'on';
+  if (viewerLogin && !oidc) throw new Error('BI_VIEWER_LOGIN=on needs single sign-on (OIDC_ISSUER).');
   const snowflake = loadSnowflakeConfig(env);
   const store = oneOf(env.BI_STORE, ['memory', 'postgres', 'snowflake'] as const, env.DATABASE_URL ? 'postgres' : 'memory', 'BI_STORE');
   if (store === 'postgres' && !env.DATABASE_URL) throw new Error('BI_STORE=postgres needs DATABASE_URL.');
@@ -137,6 +167,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     uploads,
     snowflakeUploads,
     tokens,
+    oidc,
+    viewerLogin,
+    metricOwners: (() => {
+      if (!env.BI_METRIC_OWNERS?.trim()) return {};
+      const v = JSON.parse(env.BI_METRIC_OWNERS) as unknown;
+      if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.values(v).every((l) => Array.isArray(l) && l.every((s) => typeof s === 'string'))) {
+        throw new Error('BI_METRIC_OWNERS must be JSON: {"team-a": ["ana@example.com"]}.');
+      }
+      return v as Record<string, string[]>;
+    })(),
+    aiTeams: env.BI_AI_TEAMS?.trim() ? env.BI_AI_TEAMS.split(',').map((t) => t.trim()).filter(Boolean) : null,
     corsOrigins: (env.BI_CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     // Seed the examples into durable stores only when asked; the in-memory store always starts seeded.
     seed: env.BI_SEED === '1' || store === 'memory',

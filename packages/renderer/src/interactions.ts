@@ -22,6 +22,8 @@ export interface WidgetInteractions {
   select(selection: MarkSelection, event?: { additive?: boolean }): void;
   /** Whether a mark is part of the active selection; undefined when nothing is selected. */
   isSelected(field: string, value: Cell): boolean | undefined;
+  /** Since 1.4: a dragged range of a time axis (from and to are bucket starts, both included). */
+  selectRange?(selection: { field: string; from: Cell; to: Cell }): void;
 }
 
 const NOOP: WidgetInteractions = { interactive: false, select: () => {}, isSelected: () => undefined };

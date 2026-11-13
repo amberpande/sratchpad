@@ -124,7 +124,8 @@ export function layoutItemTab(item: LayoutItem & { tab?: string }, tabs: Dashboa
 /** A cross-filter as clients send it with a data request. */
 export interface RuntimeFilter {
   field: string;
-  op: 'in' | 'eq';
+  /** Since 1.4: 'between' with a grain = every bucket from values[0] through values[1] (a brushed range). */
+  op: 'in' | 'eq' | 'between';
   values: Array<string | number | boolean>;
   /** For a time dimension: the clicked value is a bucket start ("YYYY-MM-DD") of this grain. */
   grain?: TimeGrain;
@@ -220,7 +221,15 @@ export function runtimeFilters(dashboard: ValidDashboardLike, queryId: string, r
     if (typeof field !== 'string' || !allowed.has(field)) {
       return { ok: false, message: `Cross-filters may only use dimensions of this dashboard's queries on the same source${typeof field === 'string' ? ` ("${field}" is not one)` : ''}.` };
     }
-    if (op !== 'in' && op !== 'eq') return { ok: false, message: 'Cross-filter op must be "in" or "eq".' };
+    if (op !== 'in' && op !== 'eq' && op !== 'between') return { ok: false, message: 'Cross-filter op must be "in", "eq" or "between".' };
+    if (op === 'between') {
+      // A brushed time range (1.4, D-090): two bucket starts, both included.
+      const iso = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+      if (typeof grain !== 'string' || !GRAINS.includes(grain) || !allowed.get(field)!.has(grain)) return { ok: false, message: '"between" needs a time grain this dashboard uses for the field.' };
+      if (!Array.isArray(values) || values.length !== 2 || !iso(values[0]) || !iso(values[1]) || values[0] > values[1]) return { ok: false, message: '"between" takes two "YYYY-MM-DD" bucket starts, in order.' };
+      filters.push({ field, op: 'gte', value: values[0] }, { field, op: 'lt', value: nextBucket(values[1], grain as TimeGrain) });
+      continue;
+    }
     if (!Array.isArray(values) || values.length === 0 || values.length > MAX_RUNTIME_VALUES) {
       return { ok: false, message: `Cross-filter values must be a list of 1–${MAX_RUNTIME_VALUES}.` };
     }

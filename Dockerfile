@@ -12,6 +12,7 @@ WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/spec/package.json packages/spec/
 COPY packages/renderer/package.json packages/renderer/
+COPY packages/auth-client/package.json packages/auth-client/
 COPY services/api/package.json services/api/
 COPY apps/studio/package.json apps/studio/
 COPY apps/viewer/package.json apps/viewer/

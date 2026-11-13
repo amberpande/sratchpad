@@ -86,6 +86,8 @@ export const DimensionSchema = z.object({
   field: fieldSchema,
   grain: TimeGrainSchema.optional(),
   as: fieldSchema.optional(),
+  /** Since 1.4: group values into a dashboard set's label and "Other" (D-086). */
+  set: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/).optional(),
   /** Since 1.3: numeric bins of `width` (histograms): floor((x - offset) / width) * width + offset. */
   bin: z
     .object({ width: z.number().positive().finite(), offset: z.number().finite().optional() })
@@ -117,8 +119,27 @@ export const FilterSchema = z
     field: fieldSchema,
     op: z.enum(FILTER_OPS),
     value: z.union([ScalarSchema, z.array(ScalarSchema)]).optional(),
+    /** Since 1.4: with op in / not_in, the values of a dashboard set (instead of `value`) (D-086). */
+    set: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/).optional(),
   })
-  .superRefine((filter, ctx) => checkOpValue(filter.op, filter.value, ctx));
+  .superRefine((filter, ctx) => {
+    if (filter.set === undefined) return checkOpValue(filter.op, filter.value, ctx);
+    if (filter.op !== 'in' && filter.op !== 'not_in') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['op'], message: 'A set filter uses op "in" or "not_in".' });
+    if (filter.value !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['value'], message: 'Give either "set" or "value", not both.' });
+  });
+
+/** Since 1.4: a named, reusable set of values of one column (e.g. "top customers") (D-086). */
+export const ValueSetSchema = z
+  .object({
+    field: fieldSchema,
+    values: z.array(ScalarSchema).min(1).max(1000),
+    /** Label for members when the set groups a dimension (default: the set id). */
+    label: z.string().min(1).max(200).optional(),
+    /** Label for everything else (default "Other"). */
+    otherLabel: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type ValueSet = z.infer<typeof ValueSetSchema>;
 
 export const OrderBySchema = z.object({
   /** An output column of the query: a dimension or a measure alias. */
@@ -139,6 +160,18 @@ export const QuerySchema = z.object({
   limit: z.number().int().min(1).max(MAX_QUERY_LIMIT).default(DEFAULT_QUERY_LIMIT),
   // Spec 1.3+ query features (workstream A): see query-ext.ts.
   ...QueryExtensionShape,
+  /**
+   * Since 1.4, level of detail (D-084): aggregate first at the query's dimensions plus these finer
+   * dimensions (e.g. per customer), then the query's measures aggregate those results by name
+   * ("average of each customer's total, by region"). Filters on a detail measure apply after it.
+   */
+  detail: z
+    .object({
+      dimensions: z.array(DimensionSchema).min(1).max(4),
+      measures: z.array(MeasureSchema).min(1).max(8),
+    })
+    .strict()
+    .optional(),
 });
 
 // ── Widgets & layout ────────────────────────────────────────────────────────
@@ -154,6 +187,8 @@ export const WidgetSchema = z.object({
   drill: z.unknown().optional(),
   drillThrough: z.unknown().optional(),
   interactions: z.unknown().optional(),
+  /** Since 1.4: show the widget only when a dashboard control matches (widget-ext.ts, D-089). */
+  visibleWhen: z.unknown().optional(),
 });
 
 export const GRID_COLUMNS = 12;
@@ -190,7 +225,7 @@ export const DateRangeParamSchema = z.object({
   /** Source date column to filter. Defaults to the bound query's first time dimension. */
   field: fieldSchema.optional(),
   default: DateRangeValueSchema.default('all'),
-  bind: z.array(BindTargetSchema).min(1),
+  bind: z.array(BindTargetSchema),
 });
 
 export const SelectParamSchema = z.object({
@@ -200,7 +235,7 @@ export const SelectParamSchema = z.object({
   options: z.array(ScalarSchema).max(500).optional(),
   /** null means "no filter". */
   default: ScalarSchema.default(null),
-  bind: z.array(BindTargetSchema).min(1),
+  bind: z.array(BindTargetSchema),
 });
 
 export const PARAM_SCHEMAS: Record<string, z.AnyZodObject> & { daterange: typeof DateRangeParamSchema; select: typeof SelectParamSchema } = {

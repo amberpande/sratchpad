@@ -37,7 +37,7 @@ Index
 | [D-024](#d-024-one-container-serves-the-studio-the-viewer-and-the-api) | One container serves the Studio, the viewer and the API | Accepted |
 | [D-025](#d-025-share-links-use-the-apps-hostname-from-an-allowlist) | Share links use the app's hostname, from an allowlist | Accepted |
 | [D-026](#d-026-production-runs-a-bundled-server-on-plain-node) | Production runs a bundled server on plain Node | Accepted |
-| [D-027](#d-027-studio-sign-in-with-access-tokens-until-sso) | Studio sign-in with access tokens until SSO | Accepted (temporary) |
+| [D-027](#d-027-studio-sign-in-with-access-tokens-until-sso) | Studio sign-in with access tokens until SSO | Superseded by D-074 |
 | [D-028](#d-028-the-product-is-named-sratchpad) | The product is named Sratchpad | Accepted |
 | [D-029](#d-029-documentation-is-part-of-every-change) | Documentation is part of every change | Accepted |
 | [D-030](#d-030-a-styling-layer-in-the-spec-spec-12) | A styling layer in the spec (spec 1.2) | Accepted |
@@ -75,7 +75,7 @@ Index
 | [D-062](#d-062-widget-exports-in-the-browser-csv-export-on-the-server) | Widget exports in the browser, CSV export on the server | Accepted |
 | [D-063](#d-063-scheduled-jobs-run-as-their-owner) | Scheduled jobs run as their owner | Accepted |
 | [D-064](#d-064-csv-exports-neutralize-spreadsheet-formulas) | CSV exports neutralize spreadsheet formulas | Accepted |
-| [D-065](#d-065-joining-a-row-secured-source-is-refused-fail-closed) | Joining a row-secured source is refused (fail closed) | Accepted |
+| [D-065](#d-065-joining-a-row-secured-source-is-refused-fail-closed) | Joining a row-secured source is refused (fail closed) | Superseded by D-079 |
 | [D-066](#d-066-spec-13-built-through-extension-hooks-by-four-workstreams-one-at-a-time) | Spec 1.3 built through extension hooks by four workstreams, one at a time | Accepted |
 | [D-067](#d-067-platform-writes-share-the-per-team-writes-budget) | Platform writes share the per-team writes budget | Accepted |
 | [D-068](#d-068-llama-32-through-ollama-for-local-testing-only) | Llama 3.2 through Ollama for local testing only | Accepted |
@@ -84,6 +84,29 @@ Index
 | [D-071](#d-071-custom-sql-runs-wrapped-and-isolated-per-engine) | Custom SQL runs wrapped and isolated per engine | Accepted |
 | [D-072](#d-072-custom-sql-is-refused-where-row-level-security-applies) | Custom SQL is refused where row-level security applies | Accepted |
 | [D-073](#d-073-the-assistant-never-writes-custom-sql) | The assistant never writes custom SQL | Accepted |
+| [D-074](#d-074-single-sign-on-with-any-oidc-provider) | Single sign-on with any OIDC provider | Accepted |
+| [D-075](#d-075-viewer-links-can-require-a-company-sign-in) | Viewer links can require a company sign-in | Accepted |
+| [D-076](#d-076-global-rate-limits-through-the-shared-redis) | Global rate limits through the shared Redis | Accepted |
+| [D-077](#d-077-ai-features-can-be-limited-to-listed-teams) | AI features can be limited to listed teams | Accepted |
+| [D-078](#d-078-metric-catalog-history-and-owners) | Metric catalog history and owners | Accepted |
+| [D-079](#d-079-row-level-security-on-joined-sources) | Row-level security on joined sources | Accepted |
+| [D-080](#d-080-param-placeholders-in-custom-sql) | `{{param}}` placeholders in custom SQL | Accepted |
+| [D-081](#d-081-trend-lines-and-forecasts-in-the-renderer) | Trend lines and forecasts in the renderer | Accepted |
+| [D-082](#d-082-calendar-aware-period-comparison) | Calendar-aware period comparison | Accepted |
+| [D-083](#d-083-row-level-calculated-fields) | Row-level calculated fields | Accepted |
+| [D-084](#d-084-level-of-detail-as-a-two-pass-query) | Level of detail as a two-pass query | Accepted |
+| [D-085](#d-085-k-means-clustering-on-scatter-plots) | k-means clustering on scatter plots | Accepted |
+| [D-086](#d-086-reusable-value-sets) | Reusable value sets | Accepted |
+| [D-087](#d-087-click-to-filter-in-the-studio-preview) | Click-to-filter in the Studio preview | Accepted |
+| [D-088](#d-088-drill-on-any-query-dimension-including-the-series) | Drill on any query dimension, including the series | Accepted |
+| [D-089](#d-089-show-or-hide-widgets-by-a-controls-value) | Show or hide widgets by a control's value | Accepted |
+| [D-090](#d-090-brush-a-time-range-to-cross-filter) | Brush a time range to cross-filter | Accepted |
+| [D-091](#d-091-keyboard-selection-of-chart-marks) | Keyboard selection of chart marks | Accepted |
+| [D-092](#d-092-iso-country-codes-and-us-counties-on-maps) | ISO country codes and US counties on maps | Accepted |
+| [D-093](#d-093-more-font-families-including-the-host-apps-own) | More font families, including the host app's own | Accepted |
+| [D-094](#d-094-alert-snoozing-and-escalation) | Alert snoozing and escalation | Accepted |
+| [D-095](#d-095-per-widget-usage-from-data-loads-and-interactions) | Per-widget usage from data loads and interactions | Accepted |
+| [D-096](#d-096-pdf-reports-in-subscription-emails) | PDF reports in subscription emails | Accepted |
 
 Open questions are listed [at the end](#open-questions).
 
@@ -356,7 +379,7 @@ Open questions are listed [at the end](#open-questions).
 
 ## D-027 Studio sign-in with access tokens until SSO
 
-- **Date:** 2026-11-10 · **Status:** Accepted (temporary; replace with SSO)
+- **Date:** 2026-11-10 · **Status:** Superseded by D-074 (access tokens remain for service accounts)
 - **Context:** Production refuses dev tokens and has no SSO yet, so the deployed Studio needs a login.
 - **Decision:** Production builds have no built-in token. The Studio asks for an access token (an entry
   in `BI_TOKENS`, kept in Secrets Manager), checks it against the API, and keeps it in `sessionStorage`
@@ -619,7 +642,7 @@ Open questions are listed [at the end](#open-questions).
 
 ## D-065 Joining a row-secured source is refused (fail closed)
 
-- **Date:** 2026-11-11 · **Status:** Accepted
+- **Date:** 2026-11-11 · **Status:** Superseded by D-079
 - **Context:** Row-level security filters a query's primary source; joins (D-038) bring in other sources.
 - **Decision:** `runQuery` checks every joined source's access too: a missing attribute is `rls_denied`, and a joined source that would need row filters is refused rather than read unfiltered.
 - **Consequences:** Joins with governed sources need future work (filters on joined relations).
@@ -735,20 +758,236 @@ Open questions are listed [at the end](#open-questions).
   developer applies explicitly).
 - **Consequences:** The assistant keeps building queries from dimensions, measures and calcs.
 
+## D-074 Single sign-on with any OIDC provider
+
+- **Date:** 2026-11-13 · **Status:** Accepted. Supersedes D-027 (tokens stay for service accounts).
+- **Context:** SSO was the main unbuilt piece and the provider (Cognito, Okta, Entra) was undecided.
+- **Decision:** Build against the OIDC standard, not a vendor: any provider works, so the choice no longer blocks
+  the build. API: `OidcVerifier` (discovery, JWKS with rotation refetch, RS/PS/ES signatures via `node:crypto`, `iss`,
+  `aud` or Cognito `client_id`, `exp`/`nbf` with 60 s skew; `alg: none` and HMAC never accepted). Team and role come
+  from IdP groups through `OIDC_GROUP_MAP`; row-level attributes from claims (`OIDC_ATTRIBUTE_CLAIMS`); a user with no
+  mapped group gets nothing. Static tokens are tried first (service accounts, local dev) and are optional in
+  production once SSO is on. Browser: authorization code flow with PKCE (public client, no secret), ID token as the
+  bearer (its `aud` is always the client id), kept in `sessionStorage`, renewed with a refresh token when issued;
+  shared package `@yourorg/bi-auth-client`. `GET /auth/config` tells the Studio and viewer how to sign in.
+- **Alternatives:** A vendor SDK per provider (lock-in); ALB OIDC authentication in front of ECS (no per-request
+  team claims for the API, no token for host apps); access tokens as the browser bearer (their audience differs per
+  provider).
+- **Consequences:** The provider must put groups in the ID token (Cognito does by default as `cognito:groups`; Okta
+  and Entra need a groups claim configured). A user in several teams lands in the first mapped team. Verified with
+  fakes in tests and live in Chrome against a local mock provider; **not verified** against a real Cognito/Okta/Entra tenant.
+
+## D-075 Viewer links can require a company sign-in
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Context:** Open question: anyone with a viewer link could view (D-016).
+- **Decision:** `BI_VIEWER_LOGIN=on` (needs SSO) makes the API require, next to the share token, the viewer's own ID
+  token in `X-BI-User` from the share's team; the viewer app runs the same PKCE sign-in first. Default `off` keeps
+  links working for people outside SSO.
+- **Alternatives:** Always require login (breaks sharing with people outside the company); per-share setting
+  (useful later; one switch is simpler to reason about now).
+- **Consequences:** App share tokens (host apps) are unaffected only when `off`; with `on`, host apps must forward a
+  user token too.
+
+## D-076 Global rate limits through the shared Redis
+
+- **Date:** 2026-11-13 · **Status:** Accepted. Answers the open question on global limits (D-013).
+- **Decision:** With `REDIS_URL` (the result cache's connection), per-team request limits count across every ECS
+  task: a fixed one-minute window per (bucket, team) with `INCR`/`PEXPIRE`. Without Redis, or when Redis errors, the
+  in-process token bucket applies (limits never take the API down). Concurrent-query gates stay per task: they bound
+  that task's own connections.
+- **Alternatives:** A sliding window or token bucket in Lua (smoother, more code); Snowflake counters (too slow per
+  request); DynamoDB (a new AWS service).
+- **Consequences:** A burst at a window edge can reach twice the limit for a moment. Needs Redis for exact limits
+  (listed under "Not possible" without it).
+
+## D-077 AI features can be limited to listed teams
+
+- **Date:** 2026-11-13 · **Status:** Accepted. Answers the open question on external LLMs per team.
+- **Decision:** `BI_AI_TEAMS=team-a,team-b` limits the model-backed features to those teams: others get rule-based
+  suggestions (the model is never called) and the assistant reports `ai_disabled_for_team`. Unset = every team.
+- **Alternatives:** A per-team setting in the database (needs an admin UI); per-source flags (finer, harder to audit).
+- **Consequences:** Data governance can approve the external model team by team.
+
+## D-078 Metric catalog history and owners
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Context:** Catalog edits overwrote the definition and any editor could change shared metrics.
+- **Decision:** Every save and delete of a catalog metric is kept as a version (who, when, definition):
+  `GET /v1/metrics-catalog/:name/history`; the Studio's catalog shows it with **Restore**. `BI_METRIC_OWNERS`
+  (`{"team-a": ["ana@example.com"]}`) limits changes to the listed subjects per team; teams not listed keep the old
+  behavior (every editor).
+- **Alternatives:** A review/approval workflow (more process than teams asked for); a new "metric owner" role in tokens
+  and SSO groups (possible later; a subject list needs no IdP change).
+- **Consequences:** Changes still apply to every dashboard immediately, but are attributable and reversible.
+
+## D-079 Row-level security on joined sources
+
+- **Date:** 2026-11-13 · **Status:** Accepted. Supersedes D-065.
+- **Decision:** Each joined source's row filters apply to its own columns (`"<sourceId>.<column>"`) in WHERE, after the
+  join, on every engine. Joined rows the principal may not see never contribute; a left-joined row that only matched
+  hidden rows is dropped (results can only narrow). A principal missing a joined source's attribute is still refused.
+- **Alternatives:** Filtering inside the join (keeps unmatched primary rows with NULLs: more faithful to the left join,
+  but more SQL shapes to test); keep refusing.
+- **Consequences:** Joins work for governed teams. Cross-engine joins remain impossible (see CAPABILITIES "Not possible").
+
+## D-080 `{{param}}` placeholders in custom SQL
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Custom SQL may name dashboard params: `{{p}}` (select/search; a list expands to `?, ?, …` for `IN (…)`),
+  `{{p.from}}` / `{{p.to}}` (date range, inclusive, as DATE), `{{p.low}}` / `{{p.high}}` (range). Each becomes a bind
+  parameter, never text; an empty value binds NULL. Unknown names are validation errors. Params no longer need a
+  binding (`bind: []` is valid) so a control can feed only placeholders; an unused param is a warning.
+- **Alternatives:** Only outer filters on the result (could not filter before aggregation); string templating
+  (injection).
+- **Consequences:** Placeholders inside string literals are not supported (write them outside quotes). A param used
+  as a placeholder should not also be bound to the same query.
+
+## D-081 Trend lines and forecasts in the renderer
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Line charts take `options.trend` (`linear` or `moving_average`, optional `forecast` periods), computed in
+  the browser from the aggregated rows: least squares over equally spaced periods, a 95% prediction band for
+  forecasts. Dashed lines, a light band, never part of the data or exports.
+- **Alternatives:** Snowflake ML forecasting (warehouse cost; Snowflake only); exponential smoothing (better for
+  seasonality; more parameters to explain).
+- **Consequences:** Forecasts assume a straight-line trend; seasonality is not modelled.
+
+## D-082 Calendar-aware period comparison
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** `difference` / `percent_change` windows with `calendar: true` compare with the row whose order date is
+  `offset` periods earlier (same partition), joining the grouped rows to themselves on the shifted date in SQL (a CTE),
+  and by date in the reference engine. Missing periods stay missing instead of shifting the comparison.
+- **Alternatives:** Densifying the time axis (adds rows the author did not ask for); RANGE window frames (not portable).
+- **Consequences:** Needs the order dimension to have a grain. Conformance-tested on DuckDB; Snowflake SQL only by shape.
+
+## D-083 Row-level calculated fields
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Queries take `fields: [{ as, expr }]`: numeric expressions over one row's columns with the calc grammar
+  (no aggregations) plus `year`, `quarter`, `month`, `day`, `weekday` of a date column. A field is used by name as a
+  dimension, measure, filter or inside calcs; earlier fields can be referenced. SQL inlines only parsed numeric
+  literals (like `round` digits); everything else is quoted columns.
+- **Alternatives:** String functions (`upper`, `concat`) now (needs typed expressions; next step); free SQL fragments
+  (rejected, D-034).
+- **Consequences:** String row-level functions remain a gap; custom SQL covers them meanwhile.
+
+## D-084 Level of detail as a two-pass query
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** `detail: { dimensions, measures }` aggregates first at the query's dimensions plus the detail dimensions
+  (Tableau INCLUDE), then the query's measures aggregate those named results. Implemented by running the same compiler
+  twice (inner pass without ORDER/LIMIT); filters on detail measures run in the outer pass. Conformance-tested.
+- **Alternatives:** FIXED/EXCLUDE semantics (FIXED ignores the view's dimensions; EXCLUDE is covered by
+  `percent_of_total` partitions); window functions at row level (wrong weights for non-additive outer aggregates).
+- **Consequences:** No catalog metrics with `detail` yet; one detail level per query.
+
+## D-085 k-means clustering on scatter plots
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Scatter `options.cluster: { k }` colors points by k-means on scaled (x, y), deterministic seeding and
+  stable cluster numbering so every viewer sees the same groups. Computed in the browser over the plotted rows.
+- **Alternatives:** Server-side or Snowflake ML clustering (more dimensions; heavier); random seeding (unstable colors).
+- **Consequences:** Two dimensions only; up to the plotted rows (query limit).
+
+## D-086 Reusable value sets
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** A dashboard's `sets` name lists of values of one column (`top customers`). A dimension with `set` groups
+  values into the set's label and "Other"; a filter with `set` and `in` / `not_in` uses the list. The server expands
+  sets into buckets and lists before execution, so every engine runs features it already supports.
+- **Alternatives:** Dynamic sets (top N by a measure: covered by `topN`); team-level sets in the catalog (later, like
+  metrics).
+- **Consequences:** Sets are static lists edited in the JSON view.
+
+## D-087 Click-to-filter in the Studio preview
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** The Studio's preview client sends cross-filter and drill variants as their own entries (like the SDK's
+  client), keyed and cached by variant, so clicks behave in the Studio as in the viewer.
+- **Consequences:** The server already validated variants on the preview route; no server change.
+
+## D-088 Drill on any query dimension, including the series
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** `drill.dimension` (default 0) picks which query dimension drills; line and bar charts report clicks on a
+  series (line or bar of that series) with the series value. With `dimension` set, only clicks on that dimension's
+  marks drill.
+- **Consequences:** Charts that have no series still drill on the x axis only.
+
+## D-089 Show or hide widgets by a control's value
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Widget `visibleWhen: { param, is: set | empty | in, values? }`. A hidden widget runs no query and leaves its
+  grid space empty; the Studio canvas always shows it so authors can edit it.
+- **Alternatives:** Collapsing the space (moves other widgets as controls change: disorienting); container widgets
+  (larger layout change).
+
+## D-090 Brush a time range to cross-filter
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Dragging across a line chart's time axis selects every bucket from start to end; other widgets get a
+  `between` cross-filter (`>= start`, `< next bucket after end`), validated like other cross-filters.
+
+## D-091 Keyboard selection of chart marks
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Interactive charts get a keyboard toolbar of their values (hidden until focused): arrow keys move, Enter
+  or Space selects (Shift adds), announced politely. Same effect as clicking a mark.
+- **Alternatives:** Focusable SVG marks (chart-library specific, many tab stops).
+
+## D-092 ISO country codes and US counties on maps
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** World maps also match ISO 3166-1 alpha-2 and alpha-3 codes (table in the renderer). A `usa-counties`
+  basemap (us-atlas counties) matches 5-digit FIPS codes or "County, ST"; it loads on demand (≈800 KB) behind the
+  widget's loading state, so other dashboards do not download it.
+- **Consequences:** Other custom geographies (sales territories) remain a gap.
+
+## D-093 More font families, including the host app's own
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Theme fonts add `inherit` (the host app's font, for embedded dashboards) and humanist, geometric, slab
+  and condensed stacks of fonts already installed on users' systems. Still an enum: no URLs, no free CSS (D-030).
+- **Alternatives:** Web font URLs (network requests and CSP changes in every host app).
+
+## D-094 Alert snoozing and escalation
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** `POST /v1/alerts/:id/snooze {minutes}` silences notifications (checks and state continue; 0 unsnoozes).
+  `escalateAfterMinutes` + `escalateTo`: when an alert is still firing that long after it fired, the escalation list is
+  emailed once per firing episode. Studio: Snooze menu, escalation fields.
+
+## D-095 Per-widget usage from data loads and interactions
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** The saved-dashboard data route counts loads per query, and cross-filter or drill variants as
+  interactions; `/v1/dashboards/:id/usage` reports them per widget (widgets sharing a query share its numbers). Studio:
+  **Usage** dialog.
+- **Alternatives:** Client-side events per widget (more traffic, spoofable by any client).
+
+## D-096 PDF reports in subscription emails
+
+- **Date:** 2026-11-13 · **Status:** Accepted
+- **Decision:** Subscriptions take `attachPdf`: a text PDF (title, KPIs, each selected widget's data as a table, up to 200
+  rows) built by a small writer with the built-in PDF fonts. No headless browser and no dependency.
+- **Alternatives:** Chromium in the container to print the dashboard (pixel-perfect charts; a much larger image and
+  more attack surface).
+- **Consequences:** Charts are not drawn in the PDF (the email links to the dashboard); non-Western characters print as
+  "?" with the built-in fonts.
+
 ---
 
 ## Open questions
 
 | Question | Owner | Notes |
 | --- | --- | --- |
-| Which SSO provider (Cognito, Okta, Entra)? | Platform owner | Blocks replacing D-027; roles come from group claims |
-| Should viewer links require a company login once SSO exists? | Platform owner | Today anyone with a link can view (D-016) |
-| Is an external LLM acceptable for every team's data? | Data governance | `BI_AI=off` per deployment today; per-team switch not built |
+| Which SSO provider (Cognito, Okta, Entra)? | Platform owner | No longer blocks the build (D-074 works with any OIDC provider); still needed to deploy |
+| Should viewer links require a company login? | Platform owner | Switch built (`BI_VIEWER_LOGIN`, D-075); default off |
+| Is an external LLM acceptable for every team's data? | Data governance | Per-team switch built (`BI_AI_TEAMS`, D-077); which teams is the open part |
 | Snowflake warehouse model: per team or shared with quotas? | Platform owner | Affects cost attribution and concurrency (D-008, D-019) |
 | A shared metric catalog ("revenue" defined once)? | Product | Each dashboard defines its own today |
-| Exact global rate limits across tasks? | Platform owner | Per-task today (D-013) |
 | Rename the `@yourorg` scope and `BI_*` prefix? | Owner | Deferred (D-028) |
 | Should scheduled jobs refresh the owner's row-level attributes instead of keeping them from creation? | Platform owner | Needs an identity source (SSO) or an expiry (D-063) |
-| Row-level security on joined sources | Platform owner | Joins with governed sources are refused today (D-065) |
 | Should custom SQL work with row-level security (Snowflake row access policies) and on uploads stored in Snowflake (per-team uploads role)? | Platform owner | Refused today (D-071, D-072) |
-| Should custom SQL take `{{param}}` placeholders (filter before aggregation)? | Product | Filters apply to the result today (D-070) |

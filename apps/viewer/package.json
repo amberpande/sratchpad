@@ -13,7 +13,8 @@
     "@yourorg/bi-renderer": "*",
     "@yourorg/bi-spec": "*",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "@yourorg/bi-auth-client": "*"
   },
   "devDependencies": {
     "@testing-library/dom": "10.4.0",

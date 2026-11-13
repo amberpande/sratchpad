@@ -51,8 +51,28 @@ describe('joins through runQuery', () => {
     if (line.ok) expect(line.result.rows.length).toBeGreaterThan(0);
   });
 
-  it('refuses a join with a row-secured source (fail closed)', async () => {
+  it('refuses a join with a row-secured source when the principal lacks the attribute (fail closed)', async () => {
     const line = await preview(app({ 'team-a': [{ field: 'region', attribute: 'region', source: { type: 'sample', ref: 'orders' } }] }));
     expect(line).toMatchObject({ ok: false, error: { code: 'rls_denied' } });
+  });
+
+  it('filters a row-secured joined source by its own columns (D-079)', async () => {
+    const a = createApp({
+      store: new MemoryDashboardStore(),
+      auth: StaticTokenVerifier.parse('t-eu:team-a:eu:editor:region=Europe'),
+      engines: defaultEngines(() => NOW),
+      now: () => NOW,
+      // Only the joined source is governed here, so its filter alone must restrict the result.
+      queryServices: { rls: { 'team-a': [{ field: 'region', attribute: 'region', source: { type: 'sample', ref: 'orders' } }] } },
+    });
+    const res = await a.request('/v1/preview/data', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer t-eu', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spec, queries: ['q'] }),
+    });
+    const line = JSON.parse((await res.text()).trim()) as DataResponseLine;
+    expect(line.ok, JSON.stringify(line)).toBe(true);
+    if (line.ok) expect(line.result.rows.map((r) => r.region)).toEqual(['Europe']);
+    // The SQL path (DuckDB) gets the same filter on "o2.region"; the reference engine already proves the rows.
   });
 });

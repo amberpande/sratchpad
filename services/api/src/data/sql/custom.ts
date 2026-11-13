@@ -34,7 +34,54 @@ export interface AttachedSqlSource {
   source: { type: string; ref: string };
 }
 
-export type SqlQuery = Query & { sqlSources?: AttachedSqlSource[] };
+/** Values for `{{param}}` placeholders, resolved by data/run.ts from the dashboard's params (D-080). */
+export type SqlParamValue = string | number | boolean | null | Array<string | number | boolean> | { from: string; to: string; toExclusive: string } | [number | string | null, number | string | null];
+
+export type SqlQuery = Query & { sqlSources?: AttachedSqlSource[]; sqlParams?: Record<string, SqlParamValue> };
+
+const PLACEHOLDER = /\{\{\s*([A-Za-z][A-Za-z0-9_-]{0,63})(?:\.(from|to|low|high))?\s*\}\}/g;
+
+/** Param ids the SQL refers to with {{…}}. */
+export function sqlPlaceholders(sql: string): string[] {
+  return [...new Set([...sql.matchAll(PLACEHOLDER)].map((m) => m[1]!))];
+}
+
+/**
+ * Replaces each {{param}} with bind placeholders (never inlined text): a scalar → ?, a list → ?, ?, …
+ * (write `IN ({{regions}})`), a date range → {{p.from}} / {{p.to}} as DATE (to is inclusive), a range →
+ * {{p.low}} / {{p.high}}. An empty value binds NULL, so write `({{p}} IS NULL OR col = {{p}})` for "all".
+ */
+function bindPlaceholders(sql: string, values: Record<string, SqlParamValue>, params: BindValue[]): string {
+  return sql.replace(PLACEHOLDER, (_m, id: string, part?: string) => {
+    if (!Object.hasOwn(values, id)) throw new EngineError('invalid_sql', `{{${id}}} is not a param of this dashboard.`);
+    const v = values[id];
+    const nullBind = () => 'CAST(NULL AS VARCHAR)';
+    if (part === 'from' || part === 'to') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) {
+        if (v === null) return 'CAST(NULL AS DATE)';
+        throw new EngineError('invalid_sql', `{{${id}.${part}}} needs a date range param.`);
+      }
+      params.push(part === 'from' ? (v as { from: string }).from : (v as { to: string }).to);
+      return 'CAST(? AS DATE)';
+    }
+    if (part === 'low' || part === 'high') {
+      if (!Array.isArray(v) || v.length !== 2) throw new EngineError('invalid_sql', `{{${id}.${part}}} needs a range param.`);
+      const x = v[part === 'low' ? 0 : 1];
+      if (x === null || x === undefined) return nullBind();
+      params.push(x as BindValue);
+      return '?';
+    }
+    if (v === null || v === undefined || v === '') return nullBind();
+    if (Array.isArray(v)) {
+      if (!v.length) return nullBind();
+      for (const x of v) params.push(x as BindValue);
+      return v.map(() => '?').join(', ');
+    }
+    if (typeof v === 'object') throw new EngineError('invalid_sql', `{{${id}}} is a date range: use {{${id}.from}} and {{${id}.to}}.`);
+    params.push(v);
+    return '?';
+  });
+}
 
 /** Ids of the dashboard's sources that the SQL text mentions (as a whole word, any case). */
 export function mentionedSources(sql: string, ids: Iterable<string>): string[] {
@@ -85,7 +132,8 @@ export function compileCustomSql(query: Query, input: { dialect: Dialect; source
         .join(',\n  ')}`,
     );
   }
-  lines.push(`SELECT ${declared.length ? declared.map((c) => quoteIdent(c.name)).join(', ') : '*'} FROM (\n${body}\n) AS "sratchpad_q"`);
+  const bound = bindPlaceholders(body, (query as SqlQuery).sqlParams ?? {}, params);
+  lines.push(`SELECT ${declared.length ? declared.map((c) => quoteIdent(c.name)).join(', ') : '*'} FROM (\n${bound}\n) AS "sratchpad_q"`);
   const where = query.filters.map((flt, i) => {
     const column = byName.get(flt.field);
     if (declared.length && !column) throw new EngineError('unknown_field', `filters[${i}]: "${flt.field}" is not a declared column of this SQL query.`);
@@ -96,7 +144,7 @@ export function compileCustomSql(query: Query, input: { dialect: Dialect; source
   if (where.length) lines.push(`WHERE ${where.map((w) => `(${w})`).join(' AND ')}`);
   if (query.orderBy.length) lines.push(`ORDER BY ${query.orderBy.map((o) => `${quoteIdent(o.field)} ${o.dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`).join(', ')}`);
   lines.push(`LIMIT ${query.limit + 1}`);
-  const columns: ResultColumn[] = declared.map((c) => ({ name: c.name, type: c.role === 'measure' ? 'number' : (c.type ?? 'string') }));
+  const columns: ResultColumn[] = declared.map((c) => ({ name: c.name, type: c.role === 'measure' ? 'number' : (c.type ?? 'string'), ...(c.grain ? { grain: c.grain } : {}) }));
   return { sql: lines.join('\n'), params, columns, limit: query.limit };
 }
 

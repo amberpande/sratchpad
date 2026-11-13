@@ -161,9 +161,22 @@ describe('Snowflake engine (fake driver)', () => {
       { source: { type: 'snowflake', ref: 'SALES.PUBLIC.ORDERS' }, name: 'SALES.PUBLIC.ORDERS', rowCount: 1200000, createdAt: '2026-01-01T00:00:00.000Z' },
       { source: { type: 'snowflake', ref: 'SALES.PUBLIC.ORDERS_V' }, name: 'SALES.PUBLIC.ORDERS_V', createdAt: '2026-01-02T00:00:00.000Z' },
     ]);
-    expect(driver.calls[0]).toEqual({ teamId: 'team-a', sql: 'SHOW OBJECTS IN DATABASE "SALES" LIMIT 1000', binds: [] });
+    expect(driver.calls[0]).toEqual({ teamId: 'team-a', sql: 'SHOW OBJECTS IN DATABASE "SALES" LIMIT 10000', binds: [] });
     await engine.list('team-b');
-    expect(driver.calls[1]!.sql).toBe('SHOW OBJECTS IN ACCOUNT LIMIT 1000');
+    expect(driver.calls[1]!.sql).toBe('SHOW OBJECTS IN ACCOUNT LIMIT 10000');
+    // Cached, unless the Studio asks for a refresh.
+    await engine.list('team-a');
+    expect(driver.calls).toHaveLength(2);
+    await engine.list('team-a', { refresh: true });
+    expect(driver.calls).toHaveLength(3);
+  });
+
+  it('pages through more than 10,000 objects', async () => {
+    const page = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ database_name: 'SALES', schema_name: 'PUBLIC', name: `T${String(from + i).padStart(5, '0')}`, kind: 'TABLE' }));
+    const driver = new FakeDriver((call) => (call.sql.includes("FROM 'T09999'") ? page(10_000, 3) : call.sql.startsWith('SHOW OBJECTS') ? page(0, 10_000) : []));
+    const list = await new SnowflakeEngine(driver, config).list('team-a');
+    expect(list).toHaveLength(10_003);
+    expect(driver.calls.map((c) => c.sql)).toEqual(['SHOW OBJECTS IN DATABASE "SALES" LIMIT 10000', "SHOW OBJECTS IN DATABASE \"SALES\" LIMIT 10000 FROM 'T09999'"]);
   });
 
   it('profiles a fixed-size sample, never a full scan, and never returns rows', async () => {

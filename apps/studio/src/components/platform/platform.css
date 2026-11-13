@@ -18,3 +18,4 @@
 .star[aria-pressed='true'] { color: #d4a000; }
 .list-tools { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 @media (max-width: 640px) { .platform-grid { grid-template-columns: 1fr; } }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 13px; } .usage-table th, .usage-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--s-border); }

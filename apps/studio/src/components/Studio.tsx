@@ -354,6 +354,7 @@ export function Studio({ api, draft: initialDraft, saved: initialSaved, latestVe
         <DataPanel
           sources={sources.sources}
           sourcesStatus={sources.status}
+          onRefreshSources={sources.refresh}
           active={active}
           onSelectSource={setActive}
           onUpload={(f) => void onUpload(f)}

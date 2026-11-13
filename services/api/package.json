@@ -14,7 +14,8 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "typecheck": "tsc -p tsconfig.json",
     "build": "node scripts/build.mjs",
-    "start:dev": "tsx src/server.ts"
+    "start:dev": "tsx src/server.ts",
+    "smoke": "tsx src/scripts/smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.3.0",

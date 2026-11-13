@@ -40,7 +40,7 @@ applications, and can be shared read-only with business users. One shared backen
 query engine incl. 1.3 SQL and 1.4 custom SQL), the Claude ranker and assistant, and email/webhook delivery are tested with fakes
 and adapters. Run the
 [first-deploy smoke test](docs/DEPLOYMENT.md#5-first-deploy-smoke-test-do-this-on-a-non-trial-snowflake-account).
-**Not built yet:** SSO (the Studio uses access tokens until then).
+**Single sign-on:** any OIDC provider (D-074); verified against a local mock provider, not yet a real tenant.
 
 ## Quick start (local)
 

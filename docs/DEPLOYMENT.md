@@ -109,6 +109,9 @@ deploy, as an editor:
 8. Click a bar on a dashboard with click-to-filter on; drill down and back; switch tabs.
 9. Check `/metrics` with the metrics token and the CloudWatch logs.
 
+Steps 1–4 are scripted: `SMOKE_URL=https://<host>/bi-api SMOKE_TOKEN=<editor token or ID token> SMOKE_TABLE=DB.SCHEMA.TABLE npm run smoke -w @yourorg/bi-api`
+prints PASS/FAIL per step (store, Snowflake listing, profile, pushdown queries, upload, save conflict, share revoke).
+
 ### Email (Amazon SES)
 
 SES setup: verify the sender domain/address, leave the SES sandbox (or verify recipients), create SMTP credentials,
@@ -119,10 +122,10 @@ webhook to a test endpoint you control → **Check now** → verify the signatur
 
 ## Before rolling out to every team
 
-- **SSO**: an OIDC `TokenVerifier` (team and role from group claims) to replace access tokens.
+- **SSO**: set `OIDC_*` (below) for your provider and register the redirect URIs (`https://<host>/` and `https://<host>/view/`) on a public (SPA) client with PKCE.
 - **Load test** (k6) against a production-shaped environment: size the warehouse and the task count.
-- **Redis** (`REDIS_URL`, ElastiCache) once you run several tasks, so the result cache is shared.
-- Decide whether viewer links should require a company login (open question in `DECISIONS.md`).
+- **Redis** (`REDIS_URL`, ElastiCache) once you run several tasks, so the result cache and the rate limits are shared (D-076).
+- Decide whether viewer links should require a company login (`BI_VIEWER_LOGIN`, D-075).
 
 ## Configuration reference
 
@@ -138,13 +141,22 @@ All configuration is environment variables (read in `services/api/src/config.ts`
 | `BI_STATIC_DIR` | – (image: `/app/public`) | Serve the built Studio and viewer from this process (single container) |
 | `BI_PUBLIC_HOSTS` | – | Hostnames the app is served on; share links use the request host when listed |
 | `BI_VIEWER_URL` | dev: `http://localhost:5176` | Explicit viewer URL for links (wins over `BI_PUBLIC_HOSTS`) |
-| `BI_TOKENS` | dev tokens | `token:team:subject[:role[:attributes]]`, comma-separated; role `editor` (default) or `viewer`; attributes `region=EU\|US;country=FR`, `*` = all values |
+| `BI_TOKENS` | dev tokens (production: required unless SSO is on) | `token:team:subject[:role[:attributes]]`, comma-separated; role `editor` (default) or `viewer`; attributes `region=EU\|US;country=FR`, `*` = all values |
 | `BI_RLS_POLICIES` | – | Row-level security per team: `{"team-a": [{"field": "region", "attribute": "region", "source": {"type": "snowflake", "ref": "DB.S.ORDERS"}}]}`. Malformed = the server won't start |
 | `BI_CORS_ORIGINS` | – | Origins allowed to call the API directly from browsers (not needed with one origin) |
 | `BI_SEED` / `BI_SEED_TEAM` | memory: on / `team-a` | Load `examples/dashboards` into a team on boot |
 | `BI_EXAMPLES_DIR` | repo `examples/dashboards` | Where the seed dashboards are |
 | `BI_DATA_DIR` | `services/api/.data` (image: `/tmp/sratchpad`) | Local upload files (transient with Snowflake uploads) |
 | `BI_QUERY_TIMEOUT_MS` | `15000` | Per-query timeout |
+| `OIDC_ISSUER` | – | Single sign-on (D-074): the provider's issuer URL, exactly as in tokens (Cognito `https://cognito-idp.<region>.amazonaws.com/<pool id>`, Okta `https://<org>.okta.com/oauth2/default`, Entra `https://login.microsoftonline.com/<tenant>/v2.0`) |
+| `OIDC_CLIENT_ID` | – | The SPA client id (required with `OIDC_ISSUER`) |
+| `OIDC_GROUP_MAP` | – | Required with SSO: `{"<idp group>": {"team": "team-a", "role": "editor"}}`; users in no mapped group are refused |
+| `OIDC_GROUPS_CLAIM` | `groups` | Claim with group names (Cognito: `cognito:groups`; Entra: `groups` or `roles`) |
+| `OIDC_ATTRIBUTE_CLAIMS` | – | Row-level attributes from claims: `{"region": "custom:region"}` |
+| `OIDC_SCOPES` | `openid profile email` | Scopes the browser sign-in requests (add `offline_access` for refresh tokens where needed) |
+| `BI_AI_TEAMS` | – (every team) | Comma-separated teams allowed to use the AI features (D-077); others get rule-based suggestions and no assistant |
+| `BI_METRIC_OWNERS` | – | `{"team-a": ["ana@example.com"]}`: only these subjects change that team's metric catalog (D-078) |
+| `BI_VIEWER_LOGIN` | `off` | `on`: viewer links also need a company sign-in from the share's team (D-075; needs SSO) |
 | `BI_CUSTOM_SQL` | `on` | `off` refuses custom SQL queries (spec 1.4) on every path. On Snowflake they also need a per-team role (below) |
 
 ### Storage

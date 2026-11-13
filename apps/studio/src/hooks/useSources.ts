@@ -11,9 +11,10 @@ export function useSources(api: StudioApi) {
   const [status, setStatus] = useState<SourcesStatus>('loading');
   const [message, setMessage] = useState<string>();
 
+  const [nonce, setNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    api.listSources().then(
+    api.listSources(nonce > 0).then(
       (list) => {
         if (cancelled) return;
         setSources((prev) => merge(list, prev));
@@ -29,10 +30,12 @@ export function useSources(api: StudioApi) {
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, nonce]);
 
   const add = useCallback((summary: SourceSummary) => setSources((prev) => merge(prev, [summary])), []);
-  return { sources, status, message, add };
+  /** Re-lists, skipping the server's cached listing (new tables appear at once). */
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  return { sources, status, message, add, refresh };
 }
 
 function merge(a: SourceSummary[], b: SourceSummary[]): SourceSummary[] {

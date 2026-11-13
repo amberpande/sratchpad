@@ -6,6 +6,7 @@ import { referenceChildren, useMarks } from './vizParts';
 import { seriesColor } from '../styles';
 import { AXIS_TICK, axisChrome, GRID_STROKE } from './chartParts';
 import { column, type WidgetProps } from './types';
+import { kmeans } from './cluster';
 
 interface PointTooltipProps {
   active?: boolean;
@@ -31,6 +32,8 @@ export default function ScatterWidget({ widget, result, format }: WidgetProps<Sc
   // Points with a missing coordinate can't be placed; drop them rather than pin them to 0.
   const rows = useMemo(() => result.rows.filter((r) => typeof r[x] === 'number' && typeof r[y] === 'number'), [result, x, y]);
   const color = seriesColor(0);
+  const k = (o as { cluster?: { k: number } }).cluster?.k;
+  const clusters = useMemo(() => (k ? kmeans(rows.map((r) => [r[x] as number, r[y] as number]), k) : null), [rows, k, x, y]);
   // Many points: smaller marks so the cloud stays readable.
   const range: [number, number] = size ? (rows.length > 300 ? [12, 160] : [24, 360]) : rows.length > 300 ? [28, 28] : [64, 64];
 
@@ -46,6 +49,7 @@ export default function ScatterWidget({ widget, result, format }: WidgetProps<Sc
     return (
       <div className="bi-tooltip">
         {label && <div className="bi-tooltip-label">{formatValue(row[label], undefined, labelColumn, format)}</div>}
+        {clusters && line('Cluster', String((clusters[rows.indexOf(row as never)] ?? 0) + 1))}
         {line(humanize(x), formatValue(row[x], fmt?.x, xColumn, format))}
         {line(humanize(y), formatValue(row[y], fmt?.y, yColumn, format))}
         {size && line(humanize(size), formatValue(row[size], fmt?.size, sizeColumn, format))}
@@ -96,7 +100,7 @@ export default function ScatterWidget({ widget, result, format }: WidgetProps<Sc
             onClick={(p: { payload?: Record<string, Cell> }, _i: number, e: MouseEvent) => label && p?.payload && marks.onSelect(p.payload[label] ?? null, e)}
           >
             {rows.map((r, i) => (
-              <Mark key={i} fillOpacity={0.7 * (label ? marks.opacity(r[label] ?? null) : 1)} />
+              <Mark key={i} fill={clusters ? seriesColor(clusters[i] ?? 0) : undefined} fillOpacity={0.7 * (label ? marks.opacity(r[label] ?? null) : 1)} />
             ))}
           </Scatter>
         </ScatterChart>

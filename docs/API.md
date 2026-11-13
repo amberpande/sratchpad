@@ -58,12 +58,26 @@ message for the author's SQL, file paths removed), `custom_sql_disabled` (`BI_CU
 `custom_sql_unavailable` (uploads stored in Snowflake, or a Snowflake team without its own role), `rls_denied`
 (row-level security applies to the principal), `unknown_source`, `unknown_field` (a filter on an undeclared column).
 
+## Sign-in
+
+`GET /auth/config` (no auth) returns `{"mode": "token"}` or `{"mode": "oidc", "issuer", "clientId", "scopes", "viewerLogin"}`.
+With SSO, send the provider's **ID token** as `Authorization: Bearer <id token>`. With `viewerLogin`, requests made
+with a share token also need `X-BI-User: Bearer <id token>` of the share's team, else `401 login_required`.
+
+## Delivery additions (1.4)
+
+- `POST /v1/alerts/:id/snooze` `{minutes}` (0–43200; 0 unsnoozes). Alerts take `escalateAfterMinutes` (15–10080) with
+  `escalateTo` (emails). `snoozedUntil` and `escalatedAt` appear on alerts.
+- Subscriptions take `attachPdf: true` (a PDF report attachment).
+- `GET /v1/dashboards/:id/usage` adds `widgets: [{widgetId, type, title, loads, interactions}]`.
+- Cross-filters (data routes) accept `{"field", "op": "between", "grain", "values": [from, to]}` for brushed ranges.
+
 ## Draft preview, sources and uploads (editors)
 
 | Route | |
 | --- | --- |
 | `POST /v1/preview/data` | `{spec, queries, params?}`: runs queries of an **unsaved** draft (must validate, else `422`); same NDJSON stream |
-| `GET /v1/sources` | Sample datasets, the team's uploads, and Snowflake tables/views the team's role can see (if configured) |
+| `GET /v1/sources` | Sample datasets, the team's uploads, and Snowflake tables/views the team's role can see (if configured; up to 50,000, cached 5 min; `?refresh=1` re-lists) |
 | `GET /v1/sources/profile?type=&ref=` | The source's profile (column types, roles, cardinality, ranges, samples for categories); `404` if the team can't see it |
 | `POST /v1/sources/files` | `multipart/form-data`, field `file` (.csv UTF-8 or .xlsx, max 50 MB) → `201 {summary, profile}`. Source is `{"type": "file", "ref": "file_<24 hex>"}`, visible only to the uploading team |
 
@@ -138,7 +152,7 @@ Or render it with the SDK: `<Dashboard id="dash_9f2a" token={shareToken} apiUrl=
 | `GET/POST /v1/subscriptions`, `POST /v1/subscriptions/:sid/run`, `DELETE /v1/subscriptions/:sid` | editor | `{dashboardId, name, recipients, schedule: {frequency, time, timezone, dayOfWeek?, dayOfMonth?}, widgets, includeKpis}` |
 | `GET/POST /v1/alerts`, `POST /v1/alerts/:aid/test`, `DELETE /v1/alerts/:aid` | editor | `{dashboardId, name, queryId, field, reduce, op, threshold, intervalMinutes, recipients, webhookUrl?}`; creation returns `webhookSecret` once |
 | `GET /v1/refresh` · `PUT/DELETE /v1/dashboards/:id/refresh` | editor | `{intervalMinutes 5–1440}` |
-| `GET /v1/metrics-catalog` (team) · `PUT/DELETE /v1/metrics-catalog/:name` (editor) | | metric definitions (format: data/metrics.ts) |
+| `GET /v1/metrics-catalog` (team) · `PUT/DELETE /v1/metrics-catalog/:name` (editor; `403 not_metric_owner` when `BI_METRIC_OWNERS` lists others) · `GET /v1/metrics-catalog/:name/history` (team) | | metric definitions (format: data/metrics.ts); history = every save/delete, newest first |
 
 Share tokens get `403` on all of these. Webhook payload: `{type: "alert.fired", alert, dashboard, field, value,
 previous, op, threshold, firedAt}`; verify `X-Sratchpad-Signature` = `sha256=` + hex HMAC-SHA256 of

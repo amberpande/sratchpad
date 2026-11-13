@@ -85,6 +85,8 @@ const BASE_CSS = `
 .bi-fresh[data-floating]{position:absolute;top:8px;right:12px}
 .bi-toggle{flex:none;font:inherit;font-size:11px;line-height:18px;color:var(--bi-text-2);background:transparent;border:1px solid var(--bi-border);border-radius:6px;padding:0 7px;cursor:pointer}
 .bi-toggle:hover{background:var(--bi-hover)}
+.bi-kbd-marks{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.bi-kbd-marks:focus{position:static;width:auto;height:auto;clip:auto;margin-top:4px;padding:2px 8px;font-size:12px;border:1px solid var(--bi-accent,var(--bi-series-1));border-radius:6px;color:var(--bi-text);outline:none;display:inline-block}
 .bi-toggle[aria-pressed="true"]{color:var(--bi-text);background:var(--bi-hover);border-color:var(--bi-text-3)}
 .bi-root :focus-visible{outline:2px solid var(--bi-accent,var(--bi-series-1));outline-offset:1px}
 .bi-card-body{flex:1;min-height:0;position:relative}

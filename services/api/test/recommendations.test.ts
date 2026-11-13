@@ -28,8 +28,9 @@ async function sampleProfile(): Promise<SourceProfile> {
   return (await new SampleSources(engine, () => NOW).profile('team-a', 'orders'))!;
 }
 
-function makeApp(recommender?: Recommender): App {
+function makeApp(recommender?: Recommender, aiTeams?: Set<string>): App {
   return createApp({
+    aiTeams,
     store: new MemoryDashboardStore(),
     auth: StaticTokenVerifier.parse(DEV_TOKENS),
     engines: defaultEngines(() => NOW),
@@ -202,6 +203,12 @@ describe('ranking', () => {
     expect(body.warnings).toEqual([]);
     expect(body.candidates.slice(0, 2).map((c) => c.title)).toEqual(['Revenue mix by region', 'Revenue']);
     expect(body.dashboard.title).toBe('Orders at a glance');
+    // BI_AI_TEAMS (D-077): a team not on the list gets rules only, and the model is never called.
+    let calls = 0;
+    const counting = new Recommender({ ranker: { name: 'count', rank: async (i) => (calls++, ranker.rank(i, new AbortController().signal)) } });
+    const off = (await (await recommend(makeApp(counting, new Set(['team-b'])), ORDERS)).json()) as RecommendationResponse;
+    expect(off.generatedBy).toBe('rules');
+    expect(calls).toBe(0);
     // Only the chosen candidates go on the dashboard, with the new wording on the widgets.
     expect(Object.values(body.dashboard.widgets).map((w) => w.type).sort()).toEqual(['kpi', 'pie']);
     const pie = Object.values(body.dashboard.widgets).find((w) => w.type === 'pie')!;

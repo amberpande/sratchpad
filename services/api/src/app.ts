@@ -33,16 +33,26 @@ import { parseAttributes } from './auth';
 import { SampleEngine, SampleSources } from './data/sample/engine';
 import type { SourceCatalog } from './data/sources';
 import { HttpError, VersionConflictError } from './errors';
-import { RateLimiter } from './guard/limits';
+import { RateLimiter, type Limiter } from './guard/limits';
 import { silentLogger, type Logger } from './obs/logger';
 import { isShareToken, newShare, publicShare, verifyShareToken, type ShareStore } from './sharing/store';
 import { registerPlatformRoutes, type PlatformServices } from './routes/platform';
 import type { Metrics } from './obs/metrics';
 import type { DashboardRecord, DashboardStore } from './store/types';
 
+/** GET /auth/config: public sign-in settings. */
+export type AuthInfo = { mode: 'token' } | { mode: 'oidc'; issuer: string; clientId: string; scopes: string; viewerLogin: boolean };
+
 export interface AppOptions {
   store: DashboardStore;
   auth: TokenVerifier;
+  /** Public sign-in settings the Studio and viewer read from GET /auth/config (no secrets). */
+  authInfo?: AuthInfo;
+  /**
+   * BI_VIEWER_LOGIN=on: a share token alone is not enough; the request must also carry the viewer's
+   * own SSO token (header X-BI-User) for the share's team (D-075).
+   */
+  viewerLogin?: TokenVerifier;
   engines: EngineRegistry;
   /** Source listing, profiling and uploads. Defaults to the sample datasets only (no uploads). */
   sources?: SourceCatalog;
@@ -59,6 +69,10 @@ export interface AppOptions {
   logger?: Logger;
   /** Per-team requests per minute, by route group. 0 or missing disables that limit. */
   rateLimits?: Partial<Record<RateLimitBucket, number>>;
+  /** Builds each bucket's limiter (default: in-process). With Redis: global across replicas (D-076). */
+  rateLimiter?: (bucket: RateLimitBucket, perMinute: number) => Limiter;
+  /** Teams allowed to use the AI features (BI_AI_TEAMS, D-077); undefined = every team. */
+  aiTeams?: ReadonlySet<string>;
   /** When set, GET /metrics requires "Authorization: Bearer <metricsToken>". */
   metricsToken?: string;
   /** The Studio's dashboard assistant (Claude). Without it, the assistant routes report it as off. */
@@ -260,8 +274,11 @@ export function createApp(options: AppOptions) {
   // Parsed at startup, so a malformed BI_RLS_POLICIES stops the server rather than serving unfiltered rows.
   const services: QueryServices = { metrics, logger, rls: options.rls ?? loadRlsPolicies(), ...options.queryServices };
   const limiters = Object.fromEntries(
-    Object.entries(options.rateLimits ?? {}).map(([bucket, perMinute]) => [bucket, new RateLimiter(perMinute ?? 0)]),
-  ) as Partial<Record<RateLimitBucket, RateLimiter>>;
+    Object.entries(options.rateLimits ?? {}).map(([bucket, perMinute]) => [
+      bucket,
+      options.rateLimiter ? options.rateLimiter(bucket as RateLimitBucket, perMinute ?? 0) : new RateLimiter(perMinute ?? 0),
+    ]),
+  ) as Partial<Record<RateLimitBucket, Limiter>>;
   const prefix = options.pathPrefix ? `/${options.pathPrefix.replace(/^\/+|\/+$/g, '')}` : '';
   const app = new Hono<Env>({
     getPath: (req) => {
@@ -270,10 +287,12 @@ export function createApp(options: AppOptions) {
     },
   });
 
+  const aiAllowed = (teamId: string) => !options.aiTeams || options.aiTeams.has(teamId);
+
   /** Per-team token bucket; 429 with Retry-After when empty. */
   const limit = (bucket: RateLimitBucket) => async (c: Context<Env>, next: () => Promise<void>) => {
     const limiter = limiters[bucket];
-    const wait = limiter ? limiter.take(c.get('principal').teamId) : 0;
+    const wait = limiter ? await limiter.take(c.get('principal').teamId) : 0;
     if (wait > 0) {
       metrics?.rateLimited.inc({ limit: bucket });
       c.header('Retry-After', String(wait));
@@ -317,7 +336,7 @@ export function createApp(options: AppOptions) {
       '*',
       cors({
         origin: options.corsOrigins,
-        allowHeaders: ['Authorization', 'Content-Type', 'Cache-Control', 'X-Request-Id'],
+        allowHeaders: ['Authorization', 'Content-Type', 'Cache-Control', 'X-Request-Id', 'X-BI-User'],
         allowMethods: ['GET', 'PUT', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
         exposeHeaders: ['ETag', 'X-Dashboard-Version', 'X-Request-Id', 'Retry-After'],
         maxAge: 600,
@@ -356,6 +375,8 @@ export function createApp(options: AppOptions) {
   });
 
   app.get('/healthz', (c) => c.json({ ok: true }));
+  // Public: how to sign in (token paste, or the SSO provider and client id for a PKCE browser flow).
+  app.get('/auth/config', (c) => c.json(options.authInfo ?? { mode: 'token' }));
 
   app.get('/metrics', (c) => {
     if (!metrics) throw new HttpError(404, 'not_found', 'No such route.');
@@ -373,6 +394,16 @@ export function createApp(options: AppOptions) {
     let principal: Principal | null = null;
     if (token && isShareToken(token)) {
       const share = options.shares ? await verifyShareToken(options.shares, token, now()) : null;
+      if (share && options.viewerLogin) {
+        // Company sign-in required for viewer links: the viewer's own token, from the share's team.
+        const userHeader = c.req.header('X-BI-User');
+        const userToken = userHeader ? /^Bearer\s+(\S+)$/i.exec(userHeader)?.[1] : undefined;
+        const viewer = userToken ? await options.viewerLogin.verify(userToken) : null;
+        if (!viewer || viewer.teamId !== share.teamId) {
+          c.header('WWW-Authenticate', 'Bearer');
+          throw new HttpError(401, 'login_required', 'Sign in with your company account to view this dashboard.');
+        }
+      }
       if (share) {
         principal = {
           teamId: share.teamId,
@@ -494,6 +525,11 @@ export function createApp(options: AppOptions) {
     const queries = parseQueryEntries(body.queries, dashboard);
     const values = resolveParams(dashboard, body.params);
     c.header('X-Dashboard-Version', String(record.version));
+    try {
+      options.platform?.onQueriesRun?.(c.get('principal'), dashboard.id, queries.map((q) => ({ queryId: q.queryId, variant: Boolean(q.variant) })));
+    } catch {
+      /* usage analytics must never break reads */
+    }
     return streamQueries(c, dashboard, queries, values);
   });
 
@@ -520,10 +556,11 @@ export function createApp(options: AppOptions) {
   // ── sources: catalog, profiler, uploads ──
   app.get('/v1/sources', editor, async (c) => {
     const { teamId } = c.get('principal');
+    const refresh = c.req.query('refresh') === '1';
     const lists = await Promise.all(
       sources.providers.map(async (p) => {
         try {
-          return await p.list(teamId);
+          return await p.list(teamId, { refresh });
         } catch (error) {
           // One unreachable warehouse must not hide the sample data and uploads.
           logger.warn('listing sources failed', { requestId: c.get('requestId'), type: p.type, error });
@@ -573,7 +610,7 @@ export function createApp(options: AppOptions) {
     }
     const disconnected = new AbortController();
     c.req.raw.signal?.addEventListener('abort', () => disconnected.abort(), { once: true });
-    const response = await recommender.recommend({ source: { type, ref }, sourceName, profile, signal: disconnected.signal });
+    const response = await recommender.recommend({ source: { type, ref }, sourceName, profile, signal: disconnected.signal, allowLlm: aiAllowed(teamId) });
     metrics?.recommendations.inc({ generated_by: response.generatedBy });
     return c.json(response);
   });
@@ -696,11 +733,15 @@ export function createApp(options: AppOptions) {
   });
 
   // ── dashboard assistant (Studio chat): edits an unsaved draft; never saves ──
-  app.get('/v1/assistant', editor, (c) => c.json({ enabled: Boolean(options.assistant), ...(options.assistant ? { model: options.assistant.modelName } : {}) }));
+  app.get('/v1/assistant', editor, (c) => {
+    const enabled = Boolean(options.assistant) && aiAllowed(c.get('principal').teamId);
+    return c.json({ enabled, ...(enabled ? { model: options.assistant!.modelName } : {}) });
+  });
 
   app.post('/v1/assistant/chat', editor, limit('assistant'), async (c) => {
     if (!options.assistant) throw new HttpError(503, 'assistant_unavailable', 'The assistant is not enabled on this server.');
     const { teamId } = c.get('principal');
+    if (!aiAllowed(teamId)) throw new HttpError(403, 'ai_disabled_for_team', 'The AI assistant is turned off for your team.');
     const body = await readJson(c);
     if (!isRecord(body) || !isRecord(body.draft) || !Array.isArray(body.messages)) {
       throw new HttpError(400, 'invalid_body', 'Expected {"draft": {...}, "messages": [{"role", "content"}], "selectedWidgetId"?}.');

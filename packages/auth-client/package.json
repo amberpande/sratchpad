@@ -1,0 +1,13 @@
+{
+  "name": "@yourorg/bi-auth-client",
+  "version": "0.1.0",
+  "description": "Browser single sign-on for the Studio and viewer: OIDC authorization code flow with PKCE (no client secret).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

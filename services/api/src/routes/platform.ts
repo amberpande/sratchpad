@@ -23,6 +23,8 @@ import type { DashboardStore } from '../store/types';
 export interface PlatformServices {
   /** Called when a dashboard is opened (usage analytics). Must never throw or block. */
   onDashboardView?(principal: Principal, dashboardId: string): void;
+  /** Called when a saved dashboard's queries run (per-widget usage, D-095). Must never throw or block. */
+  onQueriesRun?(principal: Principal, dashboardId: string, queries: Array<{ queryId: string; variant: boolean }>): void;
   /** The feature implementation (workstream D). Without it only onDashboardView applies. */
   service?: PlatformService;
   /** Whether the scheduler runs in this process (reported by /v1/platform). */
@@ -55,6 +57,7 @@ const SubscriptionBody = z
     schedule: ScheduleSchema,
     widgets: z.array(z.string().regex(ID_PATTERN)).max(20).default([]),
     includeKpis: z.boolean().default(true),
+    attachPdf: z.boolean().optional(),
   })
   .strict();
 const AlertBody = z
@@ -69,9 +72,12 @@ const AlertBody = z
     intervalMinutes: z.number().int().min(5).max(1440).default(60),
     recipients: emails.default([]),
     webhookUrl: z.string().max(2000).optional(),
+    escalateAfterMinutes: z.number().int().min(15).max(10080).optional(),
+    escalateTo: emails.optional(),
   })
   .strict()
-  .refine((a) => a.recipients.length > 0 || a.webhookUrl, 'an alert needs recipients or a webhookUrl');
+  .refine((a) => a.recipients.length > 0 || a.webhookUrl, 'an alert needs recipients or a webhookUrl')
+  .refine((a) => (a.escalateAfterMinutes === undefined) === (a.escalateTo === undefined || a.escalateTo.length === 0), 'escalation needs both escalateAfterMinutes and escalateTo');
 const RefreshBody = z.object({ intervalMinutes: z.number().int().min(5).max(1440) }).strict();
 const MetricBody = z.record(z.unknown());
 
@@ -245,6 +251,10 @@ export function registerPlatformRoutes(app: Hono<any>, ctx: PlatformRouteContext
     if (!alert) throw new HttpError(404, 'not_found', 'Alert not found.');
     return c.json({ alert: publicAlert(await service.evaluateAlert(p.teamId, alert, { force: true })) });
   }));
+  app.post('/v1/alerts/:aid/snooze', editor, wrap(async (c) => {
+    const body = parse(z.object({ minutes: z.number().int().min(0).max(43_200) }).strict(), await readJson(c));
+    return c.json({ alert: publicAlert(await service.snoozeAlert(principal(c).teamId, c.req.param('aid') ?? '', body.minutes)) });
+  }));
   app.delete('/v1/alerts/:aid', editor, wrap(async (c) => {
     await service.deleteRecord(principal(c).teamId, 'alerts', c.req.param('aid') ?? '');
     return c.body(null, 204);
@@ -267,10 +277,11 @@ export function registerPlatformRoutes(app: Hono<any>, ctx: PlatformRouteContext
     const name = c.req.param('name') ?? '';
     if (!METRIC_NAME.test(name)) throw new HttpError(400, 'invalid_name', 'Metric names are lower-case letters, digits and "_", starting with a letter.');
     const body = parse(MetricBody, await readJson(c));
-    return c.json({ metric: await service.putMetric(principal(c).teamId, name, body) });
+    return c.json({ metric: await service.putMetric(principal(c).teamId, name, body, principal(c).subject) });
   }));
   app.delete('/v1/metrics-catalog/:name', editor, wrap(async (c) => {
-    await service.deleteMetric(principal(c).teamId, c.req.param('name') ?? '');
+    await service.deleteMetric(principal(c).teamId, c.req.param('name') ?? '', principal(c).subject);
     return c.body(null, 204);
   }));
+  app.get('/v1/metrics-catalog/:name/history', wrap(async (c) => c.json({ versions: await service.metricHistory(principal(c).teamId, c.req.param('name') ?? '') })));
 }

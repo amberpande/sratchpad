@@ -12,7 +12,12 @@ export const HexColorSchema = z
   .string()
   .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'colors are hex, e.g. "#1f6feb"');
 
-export const FONTS = ['system', 'serif', 'mono', 'rounded'] as const;
+/**
+ * Font families (never URLs or free CSS). Since 1.4 (D-093): 'inherit' uses the host app's own font, so an
+ * embedded dashboard matches each team's typography; plus humanist, geometric, slab and condensed stacks of
+ * fonts already installed on users' systems (no network loading).
+ */
+export const FONTS = ['system', 'serif', 'mono', 'rounded', 'inherit', 'humanist', 'geometric', 'slab', 'condensed'] as const;
 
 export const DashboardThemeSchema = z
   .object({

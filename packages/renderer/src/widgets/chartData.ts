@@ -20,6 +20,8 @@ export interface SeriesDef {
   /** Result column the values come from (for formatting). */
   column?: ResultColumn;
   other?: boolean;
+  /** For a pivoted series: the raw value of the series column (drill on series, 1.4). */
+  value?: Cell;
 }
 
 export interface CartesianData {
@@ -61,8 +63,10 @@ export function cartesianData(result: QueryResult, encoding: CartesianEncoding):
   const yColumn = column(result, y);
   // Totals only decide which series survive a fold; they are never displayed.
   const totals = new Map<string, number>();
+  const rawOf = new Map<string, Cell>();
   for (const r of result.rows) {
     const name = label(r[seriesField]);
+    if (!rawOf.has(name)) rawOf.set(name, r[seriesField] ?? null);
     const v = r[y];
     totals.set(name, (totals.get(name) ?? 0) + (typeof v === 'number' ? Math.abs(v) : 0));
   }
@@ -76,7 +80,7 @@ export function cartesianData(result: QueryResult, encoding: CartesianEncoding):
   }
   names.sort(byLabel);
   const keyOf = new Map(names.map((n, i) => [n, `s${i}`]));
-  const series: SeriesDef[] = names.map((n, i) => ({ key: `s${i}`, label: n, color: seriesColor(i), column: yColumn }));
+  const series: SeriesDef[] = names.map((n, i) => ({ key: `s${i}`, label: n, color: seriesColor(i), column: yColumn, value: rawOf.get(n) ?? null }));
   if (folded) series.push({ key: 'other', label: OTHER_LABEL, color: OTHER_COLOR, column: yColumn, other: true });
 
   // Rows keep the query's x order (it is already sorted by the data layer).

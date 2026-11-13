@@ -6,7 +6,8 @@
 
 export interface MailAttachment {
   filename: string;
-  content: string;
+  /** Text (CSV) or bytes (the PDF report). */
+  content: string | Uint8Array;
   contentType: string;
 }
 

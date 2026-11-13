@@ -168,11 +168,23 @@ const chartChrome = {
 };
 const CHROME_SINCE = { 'options.showGrid': STYLE_SINCE, 'options.dataLabels': STYLE_SINCE, 'options.axis': STYLE_SINCE } as const;
 
+/** Since 1.4: a fitted trend over each series, optionally extended as a forecast with a 95% band (D-081). */
+export const TrendSchema = z
+  .object({
+    type: z.enum(['linear', 'moving_average']).default('linear'),
+    /** Future periods to project (linear only; needs a time or numeric x axis). */
+    forecast: z.number().int().min(0).max(60).optional(),
+    /** moving_average: points per window (default 3). */
+    window: z.number().int().min(2).max(60).optional(),
+  })
+  .strict();
+
 export const LineChartOptionsSchema = z.object({
   title,
   format: axisFormat.optional(),
   curve,
   showPoints: z.boolean().default(false),
+  trend: TrendSchema.optional(),
   showLegend: z.boolean().optional(),
   ...chartChrome,
   ...references,
@@ -256,6 +268,8 @@ export const ScatterOptionsSchema = z.object({
   referenceLines: references.referenceLines,
   tooltip: TooltipSchema.optional(),
   numberFormats,
+  /** Since 1.4: color points by k-means cluster of (x, y), computed in the browser (D-085). */
+  cluster: z.object({ k: z.number().int().min(2).max(8) }).strict().optional(),
 });
 
 export const PIE_MAX_SLICES = 6;
@@ -324,7 +338,8 @@ export const MapEncodingSchema = z.object({
 });
 export const MapOptionsSchema = z.object({
   title,
-  basemap: z.enum(['world', 'usa']).default('world'),
+  /** 'usa-counties' since 1.4 (5-digit FIPS or "County, ST"). */
+  basemap: z.enum(['world', 'usa', 'usa-counties']).default('world'),
   kind: z.enum(['choropleth', 'symbol']).default('choropleth'),
   /** Color scale for the value (default: the first series color, light to full). */
   colors: colorRange.optional(),
@@ -758,6 +773,7 @@ export const WIDGET_TYPES: Record<WidgetType, WidgetTypeDefinition> = {
   'line-chart': {
     since: '1.0',
     ...CARTESIAN,
+    fieldsSince: { ...CARTESIAN.fieldsSince, 'options.trend': '1.4' },
     options: LineChartOptionsSchema,
     fieldRefs: ({ encoding, options }) => cartesianRefs(encoding, options),
     check: cartesianCheckWithFacet,
@@ -793,7 +809,7 @@ export const WIDGET_TYPES: Record<WidgetType, WidgetTypeDefinition> = {
   scatter: {
     since: '1.1',
     encoding: ScatterEncodingSchema,
-    fieldsSince: { 'options.showGrid': STYLE_SINCE, 'options.axis': STYLE_SINCE, ...since13('options.referenceLines', 'options.tooltip', 'options.numberFormats') },
+    fieldsSince: { 'options.showGrid': STYLE_SINCE, 'options.axis': STYLE_SINCE, ...since13('options.referenceLines', 'options.tooltip', 'options.numberFormats'), 'options.cluster': '1.4' },
     options: ScatterOptionsSchema,
     fieldRefs: ({ encoding, options }) => [...encodingRefs(encoding), ...optionRefs(options)],
     check: ({ encoding }, ctx) => {
@@ -1090,6 +1106,7 @@ export function requiredSpecVersion(
     if (parsed && compareSpecVersions(parsed, need) > 0) need = parsed;
   };
   if (doc.theme !== undefined) raise(STYLE_SINCE);
+  if ((doc as { sets?: unknown }).sets !== undefined) raise('1.4');
   // 1.3 extensions: queries (A), dashboard-level and widget-level fields (B).
   if (doc.queries && typeof doc.queries === 'object') {
     for (const q of Object.values(doc.queries as Record<string, unknown>)) {

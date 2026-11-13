@@ -18,7 +18,10 @@
  */
 
 export const CALC_FUNCTIONS = ['abs', 'round', 'coalesce', 'nullif', 'least', 'greatest'] as const;
-export type CalcFunction = (typeof CALC_FUNCTIONS)[number];
+/** Since 1.4, row-level fields only (D-083): date parts of a date or timestamp column, as numbers. */
+export const DATE_PART_FUNCTIONS = ['year', 'quarter', 'month', 'day', 'weekday'] as const;
+export type DatePartFunction = (typeof DATE_PART_FUNCTIONS)[number];
+export type CalcFunction = (typeof CALC_FUNCTIONS)[number] | DatePartFunction;
 export const CALC_AGGREGATIONS = ['sum', 'avg', 'min', 'max', 'count', 'count_distinct', 'median', 'p25', 'p75', 'p90', 'stddev'] as const;
 export type CalcAggregation = (typeof CALC_AGGREGATIONS)[number];
 
@@ -104,7 +107,12 @@ function tokenize(text: string): Token[] {
 const isFn = (name: string): name is CalcFunction => (CALC_FUNCTIONS as readonly string[]).includes(name);
 const isAgg = (name: string): name is CalcAggregation => (CALC_AGGREGATIONS as readonly string[]).includes(name);
 
-export function parseCalcExpr(text: string): CalcParseResult {
+/**
+ * `rowLevel` (spec 1.4 `fields`, D-083): an expression over one row's columns. Names are source columns
+ * (or earlier fields), aggregations are not allowed, and date-part functions are.
+ */
+export function parseCalcExpr(text: string, options: { rowLevel?: boolean } = {}): CalcParseResult {
+  const rowLevel = options.rowLevel === true;
   if (typeof text !== 'string' || !text.trim()) return { ok: false, message: 'The expression is empty.' };
   if (text.length > MAX_LENGTH) return { ok: false, message: `Expressions are limited to ${MAX_LENGTH} characters.` };
   let tokens: Token[];
@@ -172,10 +180,18 @@ export function parseCalcExpr(text: string): CalcParseResult {
       const name = tok.v.toLowerCase();
       next(); // "("
       if (isAgg(name)) {
+        if (rowLevel) throw new CalcSyntaxError(`Aggregations like ${name}() are not allowed in a row-level field; aggregate the field in a measure instead.`);
         const field = fieldArg();
         if (field === '*' && name !== 'count') throw new CalcSyntaxError(`"*" only works with count (position ${tok.at + 1}).`);
         expect(')');
         return make({ kind: 'agg', agg: name, field });
+      }
+      const datePart = (DATE_PART_FUNCTIONS as readonly string[]).includes(name);
+      if (datePart && rowLevel) {
+        const arg = next();
+        if (arg.t !== 'ident' && arg.t !== 'quoted') throw new CalcSyntaxError(`${name}() takes a date column (position ${arg.at + 1}).`);
+        expect(')');
+        return make({ kind: 'fn', fn: name as DatePartFunction, args: [make({ kind: 'ref', name: arg.v })] });
       }
       if (!isFn(name)) throw new CalcSyntaxError(`Unknown function "${tok.v}" at position ${tok.at + 1}. Functions: ${[...CALC_FUNCTIONS, ...CALC_AGGREGATIONS].join(', ')}.`);
       const args: CalcNode[] = [];
@@ -300,7 +316,10 @@ export function roundHalfAway(value: number, digits: number): number {
  * Reference evaluation of an expression (the in-memory engine). `ref` and `agg` resolve leaves;
  * non-numeric leaves are the caller's error to raise.
  */
-export function evaluateCalc(node: CalcNode, env: { ref(name: string): number | null; agg(agg: CalcAggregation, field: string): number | null }): number | null {
+export function evaluateCalc(
+  node: CalcNode,
+  env: { ref(name: string): number | null; agg(agg: CalcAggregation, field: string): number | null; datePart?(part: DatePartFunction, column: string): number | null },
+): number | null {
   const ev = (n: CalcNode): number | null => evaluateCalc(n, env);
   switch (node.kind) {
     case 'num':
@@ -344,6 +363,9 @@ export function evaluateCalc(node: CalcNode, env: { ref(name: string): number | 
         case 'greatest':
           if (args.some((v) => v === null)) return null;
           return node.fn === 'least' ? Math.min(...(args as number[])) : Math.max(...(args as number[]));
+        default:
+          // Date parts: the caller's `ref` cannot give a date, so engines evaluate them before (row fields).
+          return env.datePart ? env.datePart(node.fn as DatePartFunction, (node.args[0] as { name: string }).name) : null;
       }
     }
   }

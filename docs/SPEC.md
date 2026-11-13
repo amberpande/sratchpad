@@ -177,6 +177,24 @@ Not available on SQL queries: drill-down, measure switches, catalog metrics. The
 Snowflake SQL for Snowflake sources, DuckDB SQL for uploads and sample data. How the server runs it safely:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) (security model), D-071, D-072.
 
+## Analysis additions (spec 1.4)
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| query `fields` | `[{ as, expr }]` | Row-level numeric expressions over the row's columns (calc grammar without aggregations) plus `year/quarter/month/day/weekday(date_column)`; usable by name like a column (D-083) |
+| query `detail` | `{ dimensions, measures }` | Level of detail: aggregate at the query's dimensions + these, then the query's measures aggregate the detail measures by name; filters on detail measures apply after (D-084) |
+| window `calendar` | `true` | `difference` / `percent_change`: `offset` counts periods of the order dimension's grain by date (D-082) |
+| dashboard `sets` | `{ id: { field, values, label?, otherLabel? } }` | Dimension `set` groups into label / "Other"; filter `set` with `in` / `not_in` (D-086) |
+| SQL column `grain` | time grain | For a `time` column of a custom SQL query |
+| custom SQL placeholders | `{{p}}`, `{{p.from}}`, `{{p.to}}`, `{{p.low}}`, `{{p.high}}` | Dashboard params as bind parameters (D-080); params may have `bind: []` |
+| line `options.trend` | `{ type: linear \| moving_average, forecast?, window? }` | Trend line; linear forecasts with a 95% band (D-081) |
+| scatter `options.cluster` | `{ k: 2–8 }` | Points colored by k-means cluster (D-085) |
+| widget `drill.dimension` | 0–7 | Which query dimension drills (1 = series) (D-088) |
+| widget `visibleWhen` | `{ param, is: set \| empty \| in, values? }` | Show the widget only when the control matches (D-089) |
+| cross-filter `op: between` | two bucket starts + grain | A brushed time range (D-090) |
+| map `options.basemap` | `usa-counties` | 5-digit FIPS or "County, ST"; world maps also take ISO alpha-2/3 (D-092) |
+| theme `font` | `inherit`, `humanist`, `geometric`, `slab`, `condensed` | In addition to system, serif, mono, rounded (D-093) |
+
 ## Calculations (spec 1.3)
 
 All optional; an error in documents claiming an older specVersion.

@@ -16,6 +16,8 @@ export interface ValidDashboard extends DashboardExtensionFields {
   params: Record<string, Param>;
   /** Since 1.2. */
   theme?: DashboardTheme;
+  /** Since 1.4: reusable value sets (D-086). */
+  sets?: Record<string, import('./schema').ValueSet>;
 }
 
 export interface Issue {

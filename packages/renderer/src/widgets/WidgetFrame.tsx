@@ -1,4 +1,5 @@
 import { widgetNeedsQuery, type QueryResult, type RenderableWidget, type Widget } from '@yourorg/bi-spec';
+import { KeyboardMarks } from './KeyboardMarks';
 import { Component, memo, Suspense, useState, type ErrorInfo, type ReactNode } from 'react';
 import type { FormatContext } from '../format';
 import { WidgetFreshness } from '../Freshness';
@@ -119,7 +120,10 @@ export const WidgetFrame = memo(function WidgetFrame({ widgetId = '', widget, st
         <WidgetFreshness asOf={asOf} cached={result?.cached} floating />
       )}
       <div className="bi-card-body">
-        <WidgetIdContext.Provider value={{ id: widgetId, widget }}>{body}</WidgetIdContext.Provider>
+        <WidgetIdContext.Provider value={{ id: widgetId, widget }}>
+          {body}
+          {isChart && !showTable && result && <KeyboardMarks widget={widget} result={result} format={format} title={title} />}
+        </WidgetIdContext.Provider>
       </div>
     </section>
   );

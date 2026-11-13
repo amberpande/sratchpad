@@ -23,7 +23,13 @@ export interface Dialect {
   profileDistinct(expr: string): string;
   /** Continuous (interpolated) percentile aggregate; `p` is one of our constants (0.25, 0.5, …). */
   percentile(p: number, expr: string): string;
+  /** A 'YYYY-MM-DD' string moved by `n` periods of `grain`, as a 'YYYY-MM-DD' string (calendar windows). */
+  shiftDate(expr: string, grain: TimeGrain, n: number): string;
+  /** A date part as a number (row-level fields): ISO weekday 1 = Monday … 7 = Sunday. */
+  datePart(part: 'year' | 'quarter' | 'month' | 'day' | 'weekday', expr: string): string;
 }
+
+const GRAIN_UNIT: Record<TimeGrain, [string, number]> = { day: ['day', 1], week: ['day', 7], month: ['month', 1], quarter: ['month', 3], year: ['year', 1] };
 
 /** Quotes an identifier (column, table, schema). Embedded quotes are doubled, so any name is safe. */
 export function quoteIdent(name: string): string {
@@ -50,6 +56,11 @@ export const duckdb: Dialect = {
   boolOr: (expr) => `bool_or(${expr})`,
   profileDistinct: (expr) => `count(DISTINCT ${expr})`,
   percentile: (p, expr) => `quantile_cont(${expr}, ${p})`,
+  shiftDate: (expr, grain, n) => {
+    const [unit, k] = GRAIN_UNIT[grain];
+    return `strftime(CAST(${expr} AS DATE) + INTERVAL (${Math.trunc(n * k)}) ${unit.toUpperCase()}, '%Y-%m-%d')`;
+  },
+  datePart: (part, expr) => `CAST(${part === 'weekday' ? 'isodow' : part}(${expr}) AS DOUBLE)`,
 };
 
 export const snowflake: Dialect = {
@@ -66,6 +77,11 @@ export const snowflake: Dialect = {
   // The profiler already samples on Snowflake; HLL keeps even the sample cheap.
   profileDistinct: (expr) => `APPROX_COUNT_DISTINCT(${expr})`,
   percentile: (p, expr) => `PERCENTILE_CONT(${p}) WITHIN GROUP (ORDER BY ${expr})`,
+  shiftDate: (expr, grain, n) => {
+    const [unit, k] = GRAIN_UNIT[grain];
+    return `TO_CHAR(DATEADD('${unit}', ${Math.trunc(n * k)}, TO_DATE(${expr})), 'YYYY-MM-DD')`;
+  },
+  datePart: (part, expr) => `CAST(${part === 'weekday' ? 'DAYOFWEEKISO' : part.toUpperCase()}(${expr}) AS DOUBLE)`,
 };
 
 const DUCKDB_INTEGER = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|INT\d*)$/;

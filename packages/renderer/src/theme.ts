@@ -12,6 +12,11 @@ const FONT_STACKS: Record<NonNullable<DashboardTheme['font']>, string> = {
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", serif',
   mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
   rounded: 'ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif',
+  inherit: 'inherit',
+  humanist: 'Seravek, "Gill Sans Nova", Ubuntu, Calibri, "DejaVu Sans", source-sans-pro, sans-serif',
+  geometric: 'Avenir, Montserrat, Corbel, "URW Gothic", source-sans-pro, sans-serif',
+  slab: 'Rockwell, "Rockwell Nova", "Roboto Slab", "DejaVu Serif", "Sitka Small", serif',
+  condensed: '"Roboto Condensed", "Arial Narrow", "Helvetica Neue Condensed", "Avenir Next Condensed", sans-serif-condensed, sans-serif',
 };
 
 type Vars = CSSProperties & Record<`--${string}`, string>;

@@ -7,7 +7,8 @@ import type { SourceProfile, SourceSummary, UploadResponse } from '@yourorg/bi-s
  */
 export interface SourceProvider {
   readonly type: string;
-  list(teamId: string): Promise<SourceSummary[]>;
+  /** `refresh` skips cached listings (the Studio's refresh button). */
+  list(teamId: string, options?: { refresh?: boolean }): Promise<SourceSummary[]>;
   /** Null when the source does not exist or the team cannot see it. */
   profile(teamId: string, ref: string): Promise<SourceProfile | null>;
 }

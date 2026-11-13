@@ -24,6 +24,8 @@ export interface RecommendInput {
   sourceName: string;
   profile: SourceProfile;
   signal?: AbortSignal;
+  /** False for teams not allowed to send profiles to an external model (BI_AI_TEAMS, D-077): rules only. */
+  allowLlm?: boolean;
 }
 
 function deadline(ms: number, outer?: AbortSignal): { signal: AbortSignal; clear(): void } {
@@ -72,7 +74,7 @@ export class Recommender {
 
     let ranking: RankResult | null = null;
     let generatedBy: RecommendationResponse['generatedBy'] = 'rules';
-    if (this.ranker && candidates.length > 1) {
+    if (this.ranker && candidates.length > 1 && input.allowLlm !== false) {
       const d = deadline(this.timeoutMs, input.signal);
       try {
         const result = await abortable(this.ranker.rank({ sourceName: input.sourceName, profile: input.profile, candidates }, d.signal), d.signal);

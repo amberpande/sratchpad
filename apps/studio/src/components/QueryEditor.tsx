@@ -48,7 +48,7 @@ const OP_LABEL: Record<FilterOp, string> = {
 };
 
 type ExtKey = (typeof EXTENSION_KEYS)[number];
-const ADVANCED_KEYS: ExtKey[] = ['windows', 'topN', 'joins', 'metrics'];
+const ADVANCED_KEYS: ExtKey[] = ['windows', 'topN', 'joins', 'metrics', 'detail'];
 
 /**
  * Spec 1.3 table calcs, top-N, joins and catalog metrics as a small JSON editor (applied when it
@@ -97,7 +97,10 @@ function AdvancedEditor({ query, onChange }: { query: NormalQuery; onChange: (q:
         }}
       />
       {error && <p className="note small">{error}</p>}
-      <p className="muted small">windows: running_total, percent_of_total, rank, moving_average, difference, percent_change · topN · joins · metrics (team catalog).</p>
+      <p className="muted small">
+        windows: running_total, percent_of_total, rank, moving_average, difference, percent_change (add <code>"calendar": true</code> to compare by date) · topN · joins · metrics (team catalog) · detail
+        (level of detail: <code>{'{"dimensions": [{"field": "customer_id"}], "measures": [{"field": "amount", "agg": "sum", "as": "customer_total"}]}'}</code>, then measure <code>avg</code> of <code>customer_total</code>).
+      </p>
     </div>
   );
 }
@@ -144,7 +147,7 @@ function SqlSection({ query, issues, onChange, onRun, coalesceKey }: { query: No
       <IssueText issues={issuesAt(issues, 'query.sql')} />
       <p className="muted small">
         One SELECT. Name this dashboard&apos;s data sources by id (e.g. <code>FROM orders</code>); on Snowflake any table your team&apos;s role can read also works
-        (<code>DB.SCHEMA.TABLE</code>). Dashboard filters apply to the result columns.
+        (<code>DB.SCHEMA.TABLE</code>). Bound dashboard filters apply to the result columns; to filter before aggregating, use a control by id: <code>{'{{range.from}}'}</code>, <code>{'{{range.to}}'}</code>, <code>{'{{region}}'}</code>, <code>{'IN ({{regions}})'}</code>.
       </p>
       <div className="q-row">
         <button type="button" className="btn small" onClick={() => void run()} disabled={running || !onRun || !query.sql?.trim()}>
@@ -177,6 +180,24 @@ function SqlSection({ query, issues, onChange, onRun, coalesceKey }: { query: No
                 <option value="dimension">dimension</option>
                 <option value="measure">measure</option>
               </select>
+              {c.role === 'dimension' && c.type === 'time' && (
+                <select
+                  className="narrow"
+                  aria-label={`Grain of ${c.name}`}
+                  value={c.grain ?? ''}
+                  onChange={(e) => {
+                    const { grain: _g, ...rest } = c;
+                    setColumns(replaceAt(columns, i, e.target.value ? { ...rest, grain: e.target.value as NonNullable<SqlColumn['grain']> } : rest));
+                  }}
+                >
+                  <option value="">any date</option>
+                  {TIME_GRAINS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              )}
               {c.role === 'dimension' && (
                 <select className="narrow" aria-label={`Type of ${c.name}`} value={c.type ?? 'string'} onChange={(e) => setColumns(replaceAt(columns, i, { ...c, type: e.target.value as SqlColumn['type'] }))}>
                   {SQL_COLUMN_TYPES.map((t) => (
@@ -342,8 +363,11 @@ function FilterRow({ filter, fields, onChange, onRemove, issues }: { filter: Fil
   );
 }
 
-export function QueryEditor({ queryId, query, fields, issues, onChange, onRun }: QueryEditorProps) {
+export function QueryEditor({ queryId, query, fields: fieldsProp, issues, onChange, onRun }: QueryEditorProps) {
   const isSql = query.sql !== undefined;
+  // Row fields (1.4) are pickable like source columns.
+  const allFields: FieldInfo[] = [...fieldsProp, ...(query.fields ?? []).filter((f) => !fieldsProp.some((x) => x.name === f.as)).map((f) => ({ ...(fieldsProp[0] ?? {}), name: f.as, semanticType: 'numeric', kind: 'measure' }) as FieldInfo)];
+  const fields = allFields;
   const cols = columnNames(compactQuery(query));
   const isTime = (name: string) => fields.find((f) => f.name === name)?.kind === 'time';
   const add = (f: FieldInfo, as: 'dimension' | 'measure') => onChange(addField(query, f, as).query);
@@ -497,6 +521,31 @@ export function QueryEditor({ queryId, query, fields, issues, onChange, onRun }:
               onChange={(next) => onChange({ ...query, filters: replaceAt(query.filters, i, next) }, key(`f${i}`))}
               onRemove={() => onChange({ ...query, filters: removeAt(query.filters, i) })}
             />
+          ))}
+        </ul>
+      </DropSection>
+
+      <DropSection
+        title="Row fields"
+        action={
+          <button type="button" className="btn ghost small" onClick={() => onChange({ ...query, fields: [...(query.fields ?? []), { as: `field_${(query.fields?.length ?? 0) + 1}`, expr: fields.find((f) => f.semanticType === 'numeric')?.name ?? 'year(order_date)' }] })}>
+            + Field
+          </button>
+        }
+      >
+        {!query.fields?.length && <p className="drop-hint">Per-row formulas, e.g. amount * fx_rate or year(order_date); then use the name as a dimension, measure or filter</p>}
+        <ul>
+          {(query.fields ?? []).map((fd, i) => (
+            <li key={i}>
+              <div className="q-row">
+                <input className="narrow" value={fd.as} aria-label="Field name" onChange={(e) => onChange({ ...query, fields: replaceAt(query.fields!, i, { ...fd, as: e.target.value }) }, key(`rf${i}as`))} />
+                <input value={fd.expr} aria-label="Field formula" spellCheck={false} onChange={(e) => onChange({ ...query, fields: replaceAt(query.fields!, i, { ...fd, expr: e.target.value }) }, key(`rf${i}expr`))} />
+                <button type="button" className="btn ghost icon tiny" onClick={() => onChange({ ...query, fields: removeAt(query.fields!, i) })} aria-label={`Remove ${fd.as}`}>
+                  ×
+                </button>
+              </div>
+              <IssueText issues={issuesAt(issues, `query.fields.${i}`)} />
+            </li>
           ))}
         </ul>
       </DropSection>

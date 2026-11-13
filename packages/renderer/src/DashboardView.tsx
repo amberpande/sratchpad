@@ -1,4 +1,4 @@
-import { effectiveParamValues, layoutItemTab, paramsForQuery, stableStringify, widgetQueryId, type Compatibility, type ValidDashboard } from '@yourorg/bi-spec';
+import { effectiveParamValues, layoutItemTab, paramsForQuery, stableStringify, widgetQueryId, type Compatibility, type ValidDashboard, isWidgetVisible, type VisibleWhen } from '@yourorg/bi-spec';
 import { requestKey, type QueryRuntime } from './data/client';
 import { InteractionContext } from './interactions';
 import { useInteractionEngine, type NavigateRequest } from './interactionEngine';
@@ -25,6 +25,8 @@ export interface DashboardViewProps {
   className?: string;
   /** Drill-through: a widget asks to open another dashboard (the host decides how). */
   onNavigate?: (request: NavigateRequest) => void;
+  /** Show widgets regardless of `visibleWhen` (the Studio canvas, where authors edit hidden widgets). */
+  ignoreVisibility?: boolean;
 }
 
 const LOADING: QueryState = { status: 'loading' };
@@ -42,6 +44,7 @@ export function DashboardView({
   showHeader = true,
   className,
   onNavigate,
+  ignoreVisibility = false,
 }: DashboardViewProps) {
   // Hosts often pass params inline ({{ dateRange }}), so key effects on the value, not identity.
   const paramsKey = stableStringify(params ?? {});
@@ -58,8 +61,12 @@ export function DashboardView({
   const [activeTab, setActiveTab] = useState<string | undefined>(tabs?.[0]?.id);
   const currentTab = tabs?.some((t) => t.id === activeTab) ? activeTab : tabs?.[0]?.id;
   const visibleLayout = useMemo(
-    () => (tabs?.length ? dashboard.layout.filter((it) => layoutItemTab(it, tabs) === currentTab) : dashboard.layout),
-    [dashboard.layout, tabs, currentTab],
+    () =>
+      (tabs?.length ? dashboard.layout.filter((it) => layoutItemTab(it, tabs) === currentTab) : dashboard.layout).filter(
+        // Show/hide (1.4): a hidden widget runs no query and leaves its space empty.
+        (it) => ignoreVisibility || isWidgetVisible((dashboard.widgets[it.i] as { visibleWhen?: VisibleWhen } | undefined)?.visibleWhen, values),
+      ),
+    [dashboard.layout, dashboard.widgets, tabs, currentTab, values, ignoreVisibility],
   );
 
   const { engine, runtimeFor } = useInteractionEngine(dashboard, onNavigate);

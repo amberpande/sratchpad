@@ -22,7 +22,13 @@ const field = z.string().min(1).max(128);
 const GRAIN = z.enum(['day', 'week', 'month', 'quarter', 'year']);
 
 export const DrillLevelSchema = z.object({ field, grain: GRAIN.optional(), label: z.string().max(80).optional() }).strict();
-export const DrillSchema = z.object({ levels: z.array(DrillLevelSchema).min(2).max(6) }).strict();
+export const DrillSchema = z
+  .object({
+    levels: z.array(DrillLevelSchema).min(2).max(6),
+    /** Since 1.4: which query dimension drills (0 = the first, the x axis; 1 = typically the series) (D-088). */
+    dimension: z.number().int().min(0).max(7).optional(),
+  })
+  .strict();
 export const DrillThroughSchema = z
   .object({
     dashboardId: z.string().regex(idPattern),
@@ -32,6 +38,30 @@ export const DrillThroughSchema = z
   })
   .strict();
 export const WidgetInteractionsSchema = z.object({ crossFilter: z.boolean().optional() }).strict();
+/**
+ * Since 1.4 (D-089): show the widget only when the control `param` has a value ("set"), has none
+ * ("empty"), or holds one of `values` ("in"; a multiselect matches when any chosen value is listed).
+ */
+export const VisibleWhenSchema = z
+  .object({
+    param: z.string().regex(idPattern),
+    is: z.enum(['set', 'empty', 'in']).default('set'),
+    values: z.array(z.union([z.string().max(500), z.number(), z.boolean()])).min(1).max(100).optional(),
+  })
+  .strict()
+  .refine((v) => (v.is === 'in') === (v.values !== undefined), { message: '"values" is required with is "in", and only then.' });
+export type VisibleWhen = z.infer<typeof VisibleWhenSchema>;
+
+/** Whether a widget with `visibleWhen` shows for the current param values. */
+export function isWidgetVisible(rule: VisibleWhen | undefined, values: Record<string, unknown>): boolean {
+  if (!rule) return true;
+  const v = values[rule.param];
+  const empty = v === null || v === undefined || v === '' || (Array.isArray(v) && (v.length === 0 || v.every((x) => x === null))) || v === 'all';
+  if (rule.is === 'set') return !empty;
+  if (rule.is === 'empty') return empty;
+  const chosen = Array.isArray(v) ? v : [v];
+  return chosen.some((x) => rule.values!.includes(x as never));
+}
 
 export type DrillLevel = z.infer<typeof DrillLevelSchema>;
 export type DrillConfig = z.infer<typeof DrillSchema>;
@@ -44,9 +74,11 @@ export interface WidgetExtensionFields {
   drillThrough?: DrillThroughConfig;
   /** Since 1.3. */
   interactions?: { crossFilter?: boolean };
+  /** Since 1.4. */
+  visibleWhen?: VisibleWhen;
 }
 
-const KEYS = ['drill', 'drillThrough', 'interactions'] as const;
+const KEYS = ['drill', 'drillThrough', 'interactions', 'visibleWhen'] as const;
 
 /** Returns the parsed extension fields, or null when they are invalid (errors already recorded). */
 export function validateWidgetExtension(
@@ -55,11 +87,11 @@ export function validateWidgetExtension(
 ): WidgetExtensionFields | null {
   const out: WidgetExtensionFields = {};
   let ok = true;
-  const schemas = { drill: DrillSchema, drillThrough: DrillThroughSchema, interactions: WidgetInteractionsSchema };
+  const schemas = { drill: DrillSchema, drillThrough: DrillThroughSchema, interactions: WidgetInteractionsSchema, visibleWhen: VisibleWhenSchema };
   for (const key of KEYS) {
     if (raw[key] === undefined) continue;
     const path = `${ctx.base}.${key}`;
-    if (!ctx.gate(path, V13)) continue;
+    if (!ctx.gate(path, key === 'visibleWhen' ? '1.4' : V13)) continue;
     const result = schemas[key].safeParse(raw[key]);
     if (!result.success) {
       ok = false;
@@ -70,7 +102,9 @@ export function validateWidgetExtension(
   }
   if (out.drill) {
     const q = ctx.queryId ? ctx.queries[ctx.queryId] : undefined;
-    const first = q?.dimensions[0];
+    const index = out.drill.dimension ?? 0;
+    if (out.drill.dimension !== undefined) ctx.gate(`${ctx.base}.drill.dimension`, '1.4');
+    const first = q?.dimensions[index];
     if (!ctx.queryId) {
       ctx.errors.push({ path: `${ctx.base}.drill`, code: 'invalid_value', message: 'Drill-down needs a widget with a query.' });
       ok = false;
@@ -78,7 +112,7 @@ export function validateWidgetExtension(
       ctx.errors.push({
         path: `${ctx.base}.drill.levels.0`,
         code: 'invalid_value',
-        message: `The first drill level must match the query's first dimension${first ? ` (${first.field}${first.grain ? `, grain ${first.grain}` : ''})` : ''}.`,
+        message: `The first drill level must match the query's ${index === 0 ? 'first dimension' : `dimension ${index}`}${first ? ` (${first.field}${first.grain ? `, grain ${first.grain}` : ''})` : ''}.`,
       });
       ok = false;
     }
@@ -87,6 +121,7 @@ export function validateWidgetExtension(
 }
 
 export function widgetExtensionSince(raw: Record<string, unknown>): string | undefined {
+  if (raw.visibleWhen !== undefined || (raw.drill as { dimension?: unknown } | undefined)?.dimension !== undefined) return '1.4';
   return KEYS.some((k) => raw[k] !== undefined) ? V13 : undefined;
 }
 
@@ -104,7 +139,8 @@ export function drillQuery(query: Query, drill: DrillConfig, level: unknown, pat
     return { ok: false, message: `Drill level must be 1–${drill.levels.length - 1}.` };
   }
   if (!Array.isArray(path) || path.length !== level) return { ok: false, message: `A drill to level ${level} needs ${level} clicked value(s).` };
-  const first = query.dimensions[0];
+  const index = drill.dimension ?? 0;
+  const first = query.dimensions[index];
   if (!first) return { ok: false, message: 'This query has no dimension to drill.' };
   const alias = first.as ?? first.field;
   const filters: Filter[] = [];
@@ -123,5 +159,6 @@ export function drillQuery(query: Query, drill: DrillConfig, level: unknown, pat
   }
   const target = drill.levels[level]!;
   const dimension = { field: target.field, ...(target.grain ? { grain: target.grain } : {}), as: alias };
-  return { ok: true, query: { ...query, dimensions: [dimension, ...query.dimensions.slice(1)], filters: [...query.filters, ...filters] } };
+  const dimensions = query.dimensions.map((d, i) => (i === index ? dimension : d));
+  return { ok: true, query: { ...query, dimensions, filters: [...query.filters, ...filters] } };
 }

@@ -89,6 +89,7 @@ export interface SubscriptionInfo {
   schedule: ScheduleInput;
   widgets: string[];
   includeKpis: boolean;
+  attachPdf?: boolean;
   owner: string;
   nextRunAt: string;
   lastRun?: RunRecord;
@@ -112,6 +113,9 @@ export interface AlertInfo {
   lastCheckedAt?: string;
   lastFiredAt?: string;
   lastError?: string;
+  snoozedUntil?: string;
+  escalateAfterMinutes?: number;
+  escalateTo?: string[];
 }
 
 export interface RefreshInfo {
@@ -218,8 +222,8 @@ export class StudioApi {
     return this.request('PUT', `/v1/dashboards/${encodeURIComponent(id)}`, { spec, expectedVersion });
   }
 
-  async listSources(): Promise<SourceSummary[]> {
-    return (await this.request<{ sources: SourceSummary[] }>('GET', '/v1/sources')).sources;
+  async listSources(refresh = false): Promise<SourceSummary[]> {
+    return (await this.request<{ sources: SourceSummary[] }>('GET', `/v1/sources${refresh ? '?refresh=1' : ''}`)).sources;
   }
 
   getProfile(source: DataSource): Promise<SourceProfile> {
@@ -289,6 +293,11 @@ export class StudioApi {
   usage(days = 30): Promise<UsageSummary> {
     return this.request('GET', `/v1/usage?days=${days}`);
   }
+  /** Views per day and per-widget loads / interactions of one saved dashboard (D-095). */
+  dashboardUsage(id: string, days = 30): Promise<{ total: number; series: Array<{ day: string; views: number }>; widgets: Array<{ widgetId: string; type?: string; title?: string; loads: number; interactions: number }> }> {
+    return this.request('GET', `/v1/dashboards/${encodeURIComponent(id)}/usage?days=${days}`);
+  }
+
 
   async listSubscriptions(dashboardId: string): Promise<SubscriptionInfo[]> {
     return (await this.request<{ subscriptions: SubscriptionInfo[] }>('GET', `/v1/subscriptions?dashboardId=${encodeURIComponent(dashboardId)}`)).subscriptions;
@@ -310,7 +319,11 @@ export class StudioApi {
     return (await this.request<{ alerts: AlertInfo[] }>('GET', `/v1/alerts?dashboardId=${encodeURIComponent(dashboardId)}`)).alerts;
   }
 
-  createAlert(body: Omit<AlertInfo, 'id' | 'state' | 'webhookSecretSet' | 'lastValue' | 'lastCheckedAt' | 'lastFiredAt' | 'lastError'>): Promise<{ alert: AlertInfo; webhookSecret?: string }> {
+  async snoozeAlert(id: string, minutes: number): Promise<AlertInfo> {
+    return (await this.request<{ alert: AlertInfo }>('POST', `/v1/alerts/${encodeURIComponent(id)}/snooze`, { minutes })).alert;
+  }
+
+  createAlert(body: Omit<AlertInfo, 'id' | 'state' | 'webhookSecretSet' | 'lastValue' | 'lastCheckedAt' | 'lastFiredAt' | 'lastError' | 'snoozedUntil'>): Promise<{ alert: AlertInfo; webhookSecret?: string }> {
     return this.request('POST', '/v1/alerts', body);
   }
 
@@ -368,6 +381,10 @@ export class StudioApi {
 
   async putMetric(name: string, def: Record<string, unknown>): Promise<CatalogMetric> {
     return (await this.request<{ metric: CatalogMetric }>('PUT', `/v1/metrics-catalog/${encodeURIComponent(name)}`, def)).metric;
+  }
+
+  async metricHistory(name: string): Promise<Array<{ version: number; action: 'saved' | 'deleted'; by: string; at: string; metric: CatalogMetric }>> {
+    return (await this.request<{ versions: Array<{ version: number; action: 'saved' | 'deleted'; by: string; at: string; metric: CatalogMetric }> }>('GET', `/v1/metrics-catalog/${encodeURIComponent(name)}/history`)).versions;
   }
 
   deleteMetric(name: string): Promise<void> {

@@ -4,6 +4,9 @@ import {
   measureAlias,
   type Cell,
   type CalcNode,
+  DATE_PART_FUNCTIONS,
+  parseCalcExpr,
+  type DatePartFunction,
   type Dimension,
   type Join,
   type Measure,
@@ -170,9 +173,120 @@ export function buildScope(query: Query, input: CompileInput): Scope {
   return { names: [...map.keys()], col: (field) => map.get(field)!, from: cat(parts) };
 }
 
-export function compileQuery(query: Query, input: CompileInput): CompiledQuery {
+/**
+ * Row-level fields (1.4, D-083) layered over a scope: each field resolves to its SQL expression over
+ * the row's columns (or earlier fields), typed number, so dimensions, measures, filters and calcs use it
+ * like a source column.
+ */
+export function withRowFields(query: Query, scope: Scope, dialect: Dialect): Scope {
+  const fields = query.fields ?? [];
+  if (!fields.length) return scope;
+  const resolved = new Map<string, Col>();
+  const col = (name: string): Col => resolved.get(name) ?? scope.col(name);
+  fields.forEach((fd, i) => {
+    const parsed = parseCalcExpr(fd.expr, { rowLevel: true });
+    if (!parsed.ok) throw new EngineError('invalid_expression', `fields[${i}] "${fd.as}": ${parsed.message}`);
+    const where = `fields[${i}] "${fd.as}"`;
+    const known = new Set([...scope.names, ...resolved.keys()]);
+    const sql = (node: CalcNode): string => {
+      switch (node.kind) {
+        case 'num':
+          return `CAST(${Number(node.value)} AS DOUBLE)`;
+        case 'ref': {
+          if (!known.has(node.name)) throw new EngineError('unknown_field', `${where}: unknown column "${node.name}".`);
+          const c = col(node.name);
+          if (!isNumeric(c.kind)) throw new EngineError('invalid_expression', `${where}: "${node.name}" is not numeric (use year(), month(), … for dates).`);
+          return `CAST(${c.sql} AS DOUBLE)`;
+        }
+        case 'agg':
+          throw new EngineError('invalid_expression', `${where}: aggregations are not allowed in a row-level field.`);
+        case 'neg':
+          return `(-${sql(node.arg)})`;
+        case 'bin': {
+          const a = sql(node.left);
+          const b = sql(node.right);
+          return node.op === '/' ? `(${a} / NULLIF(${b}, 0))` : `(${a} ${node.op} ${b})`;
+        }
+        case 'fn': {
+          if ((DATE_PART_FUNCTIONS as readonly string[]).includes(node.fn)) {
+            const name = (node.args[0] as { name: string }).name;
+            if (!known.has(name)) throw new EngineError('unknown_field', `${where}: unknown column "${name}".`);
+            const c = col(name);
+            if (c.kind !== 'date' && c.kind !== 'timestamp') throw new EngineError('invalid_expression', `${where}: ${node.fn}() needs a date column ("${name}" is not one).`);
+            return dialect.datePart(node.fn as DatePartFunction, c.sql);
+          }
+          const args = node.args.map(sql);
+          switch (node.fn) {
+            case 'abs':
+              return `abs(${args[0]})`;
+            case 'round':
+              return `round(${args[0]}, ${node.args[1] && node.args[1].kind === 'num' ? node.args[1].value : 0})`;
+            case 'coalesce':
+              return `coalesce(${args.join(', ')})`;
+            case 'nullif':
+              return `nullif(${args[0]}, ${args[1]})`;
+            default:
+              return `(CASE WHEN ${args.map((a) => `${a} IS NULL`).join(' OR ')} THEN NULL ELSE ${node.fn}(${args.join(', ')}) END)`;
+          }
+        }
+      }
+    };
+    resolved.set(fd.as, { sql: `(${sql(parsed.node)})`, kind: 'number' });
+  });
+  return { names: [...scope.names, ...resolved.keys()], col, from: scope.from };
+}
+
+/**
+ * Level of detail (1.4, D-084): two passes of this same compiler. The inner pass groups by the query's
+ * dimensions plus the detail dimensions and computes the detail measures (no ORDER/LIMIT, so nothing is
+ * cut); the outer pass groups the inner rows by the query's dimension outputs and aggregates the detail
+ * measures. Filters on detail measures run in the outer pass; all others in the inner one.
+ */
+export function splitDetail(query: Query): { inner: Query; outer: Query } {
+  const detail = query.detail!;
+  const detailNames = new Set(detail.measures.map(measureAlias));
+  const inner: Query = {
+    ...query,
+    dimensions: [...query.dimensions, ...detail.dimensions],
+    measures: detail.measures,
+    filters: query.filters.filter((f) => !detailNames.has(f.field)),
+    orderBy: [],
+    calcs: undefined,
+    windows: undefined,
+    topN: undefined,
+    metrics: undefined,
+    detail: undefined,
+    limit: MAX_QUERY_LIMIT,
+  };
+  const outer: Query = {
+    ...query,
+    dimensions: query.dimensions.map((d) => ({ field: dimensionAlias(d) })),
+    filters: query.filters.filter((f) => detailNames.has(f.field)),
+    joins: undefined,
+    fields: undefined,
+    detail: undefined,
+  };
+  return { inner, outer };
+}
+
+const KIND_OF_TYPE: Record<ResultColumn['type'], ColumnKind> = { number: 'number', boolean: 'boolean', time: 'string', string: 'string' };
+
+export function compileQuery(query: Query, input: CompileInput, options: { unbounded?: boolean } = {}): CompiledQuery {
+  if (query.detail) {
+    const { inner, outer } = splitDetail(query);
+    const innerSql = compileQuery(inner, input, { unbounded: true });
+    const compiled = compileQuery(outer, {
+      dialect: input.dialect,
+      relation: { sql: `(\n${innerSql.sql}\n) AS "d"`, params: innerSql.params },
+      columns: new Map(innerSql.columns.map((c) => [c.name, KIND_OF_TYPE[c.type]])),
+    });
+    // Dimensions keep their inner typing (time buckets stay "time" with their grain).
+    const innerCols = new Map(innerSql.columns.map((c) => [c.name, c]));
+    compiled.columns = compiled.columns.map((c, i) => (i < query.dimensions.length && innerCols.has(c.name) ? { ...innerCols.get(c.name)!, name: c.name } : c));
+    return compiled;
+  }
   const { dialect } = input;
-  const scope = buildScope(query, input);
+  const scope = withRowFields(query, buildScope(query, input), dialect);
   checkQueryFields(query, scope.names);
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > MAX_QUERY_LIMIT) {
     throw new EngineError('invalid_limit', `limit must be an integer between 1 and ${MAX_QUERY_LIMIT}.`);
@@ -374,12 +488,27 @@ export function compileQuery(query: Query, input: CompileInput): CompiledQuery {
   }
 
   // ── windows over the aggregated rows ──
+  const calendarJoins: Frag[] = [];
   const windowFrags: Frag[] = [];
   const windowColumns: ResultColumn[] = [];
   (query.windows ?? []).forEach((w, i) => {
     windowFrags.push(windowSql(w, i));
     windowColumns.push({ name: w.as, type: 'number' });
   });
+
+  // Calendar windows (1.4, D-082): the previous value is the row whose order date is `offset` periods
+  // earlier (same partition), joined from the grouped rows themselves, so missing periods stay missing.
+  function calendarPrev(w: WindowCalc, i: number): Frag {
+    const grain = query.dimensions.find((d) => dimensionAlias(d) === w.order)?.grain;
+    if (!w.order || !grain) throw new EngineError('invalid_window', `windows[${i}]: "calendar" needs "order" to be a time dimension with a grain.`);
+    const alias = quoteIdent(`p${i}`);
+    const on = [
+      `${alias}.${quoteIdent(w.order)} = ${input.dialect.shiftDate(`"q".${quoteIdent(w.order)}`, grain, -(w.offset ?? 1))}`,
+      ...(w.partition ?? []).map((p) => `(${alias}.${quoteIdent(p)} = "q".${quoteIdent(p)} OR (${alias}.${quoteIdent(p)} IS NULL AND "q".${quoteIdent(p)} IS NULL))`),
+    ];
+    calendarJoins.push(f(`LEFT JOIN "q" AS ${alias} ON ${on.join(' AND ')}`));
+    return f(`${alias}.${quoteIdent(w.measure)}`);
+  }
 
   // Windows run in an outer SELECT over the grouped rows ("q"), so they reference output columns by
   // name (an expression with binds, like a bin, would not match its GROUP BY expression).
@@ -398,9 +527,10 @@ export function compileQuery(query: Query, input: CompileInput): CompiledQuery {
       case 'moving_average':
         return t`round(CAST(avg(${v}) ${over(`ROWS BETWEEN ${(w.window ?? 3) - 1} PRECEDING AND CURRENT ROW`)} AS DOUBLE), 6)`;
       case 'difference':
+        if (w.calendar) return t`round(CAST(${v} - ${calendarPrev(w, i)} AS DOUBLE), 6)`;
         return t`round(CAST(${v} - lag(${v}, ${w.offset ?? 1}) ${over()} AS DOUBLE), 6)`;
       case 'percent_change': {
-        const prev = t`lag(${v}, ${w.offset ?? 1}) ${over()}`;
+        const prev = w.calendar ? calendarPrev(w, i) : t`lag(${v}, ${w.offset ?? 1}) ${over()}`;
         return t`round(CAST((${v} - ${prev}) / NULLIF(abs(${prev}), 0) AS DOUBLE), 6)`;
       }
       case 'percent_of_total':
@@ -441,10 +571,15 @@ export function compileQuery(query: Query, input: CompileInput): CompiledQuery {
       ', ',
     );
     lines.length = 0;
-    lines.push(t`SELECT ${outer}`, t`FROM (\n${inner}\n) AS "q"`);
+    if (calendarJoins.length) {
+      // The grouped rows are referenced twice (the row and its earlier period): a CTE.
+      lines.push(t`WITH "q" AS (\n${inner}\n)`, t`SELECT ${outer}`, f('FROM "q"'), ...calendarJoins);
+    } else lines.push(t`SELECT ${outer}`, t`FROM (\n${inner}\n) AS "q"`);
   }
-  if (order.length) lines.push(f(`ORDER BY ${order.join(', ')}`));
-  lines.push(f(`LIMIT ${query.limit + 1}`));
+  if (!options.unbounded) {
+    if (order.length) lines.push(f(`ORDER BY ${order.join(', ')}`));
+    lines.push(f(`LIMIT ${query.limit + 1}`));
+  }
   const sql = cat(lines, '\n');
   return { sql: sql.sql, params: sql.params, columns, limit: query.limit };
 }

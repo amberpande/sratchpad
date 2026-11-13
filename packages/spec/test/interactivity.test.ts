@@ -151,3 +151,24 @@ describe('spec 1.3 interactivity', () => {
     expect(drillQuery(q, { levels: [{ field: 'region' }, { field: 'channel' }] }, 1, [{ x: 1 }])).toMatchObject({ ok: false });
   });
 });
+
+describe('brushed time ranges (1.4, D-090)', () => {
+  it('turn two bucket starts into an inclusive range filter, checked against the dashboard', async () => {
+    const { runtimeFilters } = await import('../src');
+    const dash = {
+      interactions: { crossFilter: true },
+      dataSources: { o: { type: 'sample', ref: 'orders' } },
+      queries: { a: { source: 'o', dimensions: [{ field: 'order_date', grain: 'month' }], measures: [], filters: [], orderBy: [], limit: 10 }, b: { source: 'o', dimensions: [{ field: 'region' }], measures: [], filters: [], orderBy: [], limit: 10 } },
+      widgets: {},
+    } as never;
+    expect(runtimeFilters(dash, 'b', [{ field: 'order_date', op: 'between', grain: 'month', values: ['2026-01-01', '2026-03-01'] }])).toEqual({
+      ok: true,
+      filters: [
+        { field: 'order_date', op: 'gte', value: '2026-01-01' },
+        { field: 'order_date', op: 'lt', value: '2026-04-01' },
+      ],
+    });
+    expect(runtimeFilters(dash, 'b', [{ field: 'order_date', op: 'between', grain: 'month', values: ['2026-03-01', '2026-01-01'] }]).ok).toBe(false);
+    expect(runtimeFilters(dash, 'b', [{ field: 'order_date', op: 'between', grain: 'week', values: ['2026-01-05', '2026-01-12'] }]).ok).toBe(false);
+  });
+});

@@ -1,4 +1,4 @@
-import { createHttpDataClient, type DataClient, type HttpDataClient, type QueryRequest } from '@yourorg/bi-renderer';
+import { createHttpDataClient, requestKey, type DataClient, type HttpDataClient, type QueryRequest } from '@yourorg/bi-renderer';
 import { stableStringify, type ApiErrorBody, type DataResponseLine, type Issue, type PreviewRequestBody, type QueryResult, type StoredDashboard } from '@yourorg/bi-spec';
 import { queryFingerprint } from '../draft/renderable';
 import { readNdjson } from './ndjson';
@@ -95,7 +95,8 @@ export class PreviewDataClient {
 
   private fetchQuery(spec: unknown, saved: SavedRef | null, request: QueryRequest): Promise<QueryResult> {
     if (this.modeValue === 'unsupported') return this.fromSaved(spec, saved, request);
-    const key = `preview:${queryFingerprint(spec, request.queryId)}:${stableStringify(request.cacheParams)}`;
+    // Cross-filters and drills (variants) are part of the key, so a click re-queries (D-087).
+    const key = `preview:${queryFingerprint(spec, request.queryId)}:${stableStringify(request.cacheParams)}:${request.runtime ? stableStringify(request.runtime) : ''}`;
     const hit = this.cache.get(key);
     if (hit && Date.now() - hit.at < this.ttl) return hit.promise;
     const promise = new Promise<QueryResult>((resolve, reject) => this.enqueue(spec, saved, { request, resolve, reject }));
@@ -119,9 +120,10 @@ export class PreviewDataClient {
       });
     }
     Object.assign(batch.params, waiter.request.params);
-    const list = batch.waiters.get(waiter.request.queryId) ?? [];
+    const rkey = requestKey(waiter.request.queryId, waiter.request.runtime);
+    const list = batch.waiters.get(rkey) ?? [];
     list.push(waiter);
-    batch.waiters.set(waiter.request.queryId, list);
+    batch.waiters.set(rkey, list);
   }
 
   private async flush(batch: Batch) {
@@ -131,7 +133,12 @@ export class PreviewDataClient {
     };
     try {
       const token = typeof this.options.token === 'function' ? await this.options.token() : this.options.token;
-      const body: PreviewRequestBody = { spec: batch.spec, queries: [...batch.waiters.keys()], params: batch.params };
+      // Plain ids, or variant entries {query, key, filters?, drill?} for cross-filtered / drilled copies.
+      const queries = [...batch.waiters.entries()].map(([k, ws]) => {
+        const r = ws[0]!.request;
+        return k === r.queryId ? k : { query: r.queryId, key: k, ...r.runtime };
+      });
+      const body = { spec: batch.spec, queries, params: batch.params } as unknown as PreviewRequestBody;
       const response = await this.fetchImpl(`${this.apiUrl}/v1/preview/data`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/x-ndjson', 'Content-Type': 'application/json' },

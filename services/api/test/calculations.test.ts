@@ -266,3 +266,53 @@ describe('SQL shapes', () => {
     expect(out.sql).toContain('round(CAST(sum("t0"."amount") AS DOUBLE), 6)');
   });
 });
+
+describe('calendar windows (D-082)', () => {
+  it('compare with the same period by date, not by row, when periods are missing', async () => {
+    const rows = [
+      { m: '2025-01-15', v: 10 },
+      { m: '2025-03-15', v: 30 }, // February is missing
+      { m: '2025-04-15', v: 40 },
+      { m: '2026-01-15', v: 20 },
+      { m: '2026-04-15', v: 60 },
+    ] as Row[];
+    const dir = await mkdtemp(join(tmpdir(), 'bi-cal-'));
+    const rt = new DuckDBRuntime();
+    try {
+      const files = new FileSources({ runtime: rt, registry: new MemoryFileSourceRegistry(), dataDir: dir, now: () => NOW });
+      const { summary } = await files.upload({ teamId: 't', subject: 'u', fileName: 'cal.csv', bytes: new TextEncoder().encode(toCsv(['m', 'v'], rows)) });
+      const q = QuerySchema.parse({
+        source: 'x',
+        dimensions: [{ field: 'm', grain: 'month' }],
+        measures: [{ field: 'v', agg: 'sum', as: 'v' }],
+        windows: [
+          { as: 'mom', type: 'difference', measure: 'v', order: 'm', calendar: true },
+          { as: 'yoy', type: 'percent_change', measure: 'v', order: 'm', offset: 12, calendar: true },
+        ],
+      });
+      const sql = await new DuckDBFileEngine(files, rt).execute(summary.source, q, { teamId: 't', signal: new AbortController().signal });
+      const ref = runInMemoryQuery(rows, new Set(['m', 'v']), q);
+      const expected = [
+        { m: '2025-01-01', v: 10, mom: null, yoy: null },
+        { m: '2025-03-01', v: 30, mom: null, yoy: null }, // no February: no month-over-month value
+        { m: '2025-04-01', v: 40, mom: 10, yoy: null },
+        { m: '2026-01-01', v: 20, mom: null, yoy: 1 },
+        { m: '2026-04-01', v: 60, mom: null, yoy: 0.5 },
+      ];
+      expect(ref.rows).toEqual(expected);
+      expect(sql.rows).toEqual(expected);
+    } finally {
+      await rt.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('calendar windows: Snowflake SQL shape (not run live)', () => {
+  it('joins the grouped rows to themselves on the shifted date', () => {
+    const q = QuerySchema.parse({ source: 'x', dimensions: [{ field: 'm', grain: 'month' }], measures: [{ field: 'v', agg: 'sum', as: 'v' }], windows: [{ as: 'yoy', type: 'difference', measure: 'v', order: 'm', offset: 12, calendar: true }] });
+    const c = compileQuery(q, { dialect: snowflake, relation: { sql: '"T"', params: [] }, columns: new Map<string, ColumnKind>([['m', 'date'], ['v', 'number']]) });
+    expect(c.sql).toContain('WITH "q" AS (');
+    expect(c.sql).toContain(`LEFT JOIN "q" AS "p0" ON "p0"."m" = TO_CHAR(DATEADD('month', -12, TO_DATE("q"."m")), 'YYYY-MM-DD')`);
+  });
+});

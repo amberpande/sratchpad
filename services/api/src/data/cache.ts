@@ -58,7 +58,7 @@ export class MemoryResultCache implements ResultCache {
 
 /** Shared cache across API replicas. Values are JSON with a Redis-side TTL. */
 export class RedisResultCache implements ResultCache {
-  constructor(private readonly redis: Redis) {}
+  constructor(readonly redis: Redis) {}
 
   static async connect(url: string): Promise<RedisResultCache> {
     const { Redis } = await import('ioredis');

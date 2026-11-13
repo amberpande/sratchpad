@@ -6,7 +6,7 @@ import { chartClick, facetDomain, useCartesianExtras } from './cartesianExtras';
 import { cartesianData, X_KEY } from './chartData';
 import { AXIS_TICK, axisChrome, chartLabel, ChartTooltip, GRID_STROKE, SeriesLegend } from './chartParts';
 import { column, type WidgetProps } from './types';
-import { Facets } from './vizParts';
+import { Facets, useMarks } from './vizParts';
 
 export default function BarChartWidget(props: WidgetProps<BarSpec>) {
   const { widget, result, format } = props;
@@ -21,6 +21,7 @@ export default function BarChartWidget(props: WidgetProps<BarSpec>) {
 function BarPlot({ widget, result, format, domain }: WidgetProps<BarSpec> & { domain?: [number, number] }) {
   const { x, series: seriesField } = widget.encoding;
   const { orientation, stacked, showLegend, showGrid, dataLabels, axis } = widget.options;
+  const seriesMarks = useMarks(seriesField);
   const data = useMemo(() => cartesianData(result, widget.encoding), [result, widget.encoding]);
   const horizontal = orientation === 'horizontal';
   const { marks, xFormat, yFormat, refs, extra } = useCartesianExtras(widget, result, data, format, { horizontal });
@@ -77,6 +78,7 @@ function BarPlot({ widget, result, format, domain }: WidgetProps<BarSpec> & { do
                 stroke={stacked ? 'var(--bi-surface)' : undefined}
                 strokeWidth={stacked ? 2 : 0}
                 isAnimationActive={false}
+                onClick={seriesField && !s.other ? (_p: unknown, _i: number, e?: { shiftKey?: boolean }) => seriesMarks.onSelect(s.value ?? null, e) : undefined}
               >
                 {data.rows.map((r, j) => (
                   <Cell key={j} fillOpacity={marks.opacity(r[X_KEY] ?? null)} />

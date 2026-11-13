@@ -1,4 +1,4 @@
-import { applyParams, drillQuery, type DataResponseLine, type DataSource, type DrillConfig, type Filter, type ParamValues, type Query, type QueryResult, type ValidDashboard } from '@yourorg/bi-spec';
+import { applyParams, drillQuery, expandSets, resolveDateRange, type DataResponseLine, type DataSource, type DrillConfig, type Filter, type ParamValues, type Query, type QueryResult, type ValidDashboard } from '@yourorg/bi-spec';
 import type { Principal } from '../auth';
 import { loadRlsPolicies, rowAccess, type RlsPolicies } from '../rls';
 import { QueueFullError, type QueryGate } from '../guard/limits';
@@ -7,7 +7,9 @@ import type { Metrics } from '../obs/metrics';
 import { resultCacheKey, type ResultCache } from './cache';
 import { expandMetrics, type MetricCatalog } from './metrics';
 import { attachJoinSources } from './sql/joins';
-import { mentionedSources, type SqlQuery } from './sql/custom';
+import { mentionedSources, sqlPlaceholders, type SqlParamValue, type SqlQuery } from './sql/custom';
+
+const dayBefore = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 import { EngineError, type Engine, type EngineRegistry } from './engine';
 
 /** Phase 5 hardening shared by every query: result cache, per-team concurrency, metrics. */
@@ -197,7 +199,7 @@ export async function runQuery(queryId: string, ctx: RunContext): Promise<DataRe
 
   // The concrete query: saved query + params, then the variant (drill level, cross-filters), then
   // row-level security, then metric references. All before the cache, so its key covers all of it.
-  let resolved: Query = applyParams(ctx.dashboard, queryId, ctx.values, ctx.now);
+  let resolved: Query = expandSets(applyParams(ctx.dashboard, queryId, ctx.values, ctx.now), ctx.dashboard.sets);
   const drill = ctx.variant?.drill;
   if (drill) {
     const drilled = drillQuery(resolved, drill.config, drill.level, drill.path);
@@ -218,20 +220,34 @@ export async function runQuery(queryId: string, ctx: RunContext): Promise<DataRe
     // The dashboard sources the SQL names (by id), resolved by the engine under the team's access.
     const sameEngine = Object.entries(ctx.dashboard.dataSources).filter(([, ds]) => ds.type === source.type);
     const ids = new Set(mentionedSources(resolved.sql, sameEngine.map(([id]) => id)));
-    const sqlQuery: SqlQuery = { ...resolved, sqlSources: sameEngine.filter(([id]) => ids.has(id)).map(([id, ds]) => ({ id, source: { type: ds.type, ref: ds.ref } })) };
+    // {{param}} placeholders (D-080): the dashboard's params by id, resolved like bound filters would be.
+    const sqlParams: Record<string, SqlParamValue> = {};
+    for (const pid of sqlPlaceholders(resolved.sql)) {
+      const param = ctx.dashboard.params[pid];
+      if (!param) continue; // compileCustomSql reports the unknown name
+      const value = ctx.values[pid] ?? (param as { default?: unknown }).default ?? null;
+      if (param.type === 'daterange') {
+        const r = resolveDateRange(value as Parameters<typeof resolveDateRange>[0], ctx.now);
+        sqlParams[pid] = r ? { from: r.from, toExclusive: r.toExclusive, to: dayBefore(r.toExclusive) } : null;
+      } else sqlParams[pid] = value as SqlParamValue;
+    }
+    const sqlQuery: SqlQuery = { ...resolved, sqlParams, sqlSources: sameEngine.filter(([id]) => ids.has(id)).map(([id, ds]) => ({ id, source: { type: ds.type, ref: ds.ref } })) };
     resolved = sqlQuery;
   }
   const access = typeof resolved.sql === 'string' ? ({ ok: true, filters: [] } as const) : rowAccess(policies, ctx.teamId, ctx.principal, source);
   if (!access.ok) return fail('rls_denied', access.message);
   if (access.filters.length) resolved = { ...resolved, filters: [...resolved.filters, ...access.filters] };
-  // Joined sources: row-level security can only filter the primary source today, so a join with a
-  // row-secured source is refused rather than read unfiltered (fail closed).
+  // Joined sources (D-079, supersedes D-065): each joined source's row filters apply to its own columns
+  // ("<sourceId>.<column>"). They run in WHERE after the join, so joined rows the principal may not see never
+  // contribute, and a left-joined row that only matched hidden rows is dropped (fail closed, never widened).
   for (const join of (resolved as { joins?: Array<{ source: string }> }).joins ?? []) {
     const joined = ctx.dashboard.dataSources[join.source];
     if (!joined) continue;
     const joinedAccess = rowAccess(policies, ctx.teamId, ctx.principal, joined);
     if (!joinedAccess.ok) return fail('rls_denied', joinedAccess.message);
-    if (joinedAccess.filters.length) return fail('rls_denied', 'Row-level security: joining a row-secured source is not supported yet.');
+    if (joinedAccess.filters.length) {
+      resolved = { ...resolved, filters: [...resolved.filters, ...joinedAccess.filters.map((f) => ({ ...f, field: `${join.source}.${f.field}` }))] };
+    }
   }
   resolved = attachJoinSources(resolved, ctx.dashboard.dataSources);
 

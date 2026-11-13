@@ -12,6 +12,7 @@ import type { Principal } from '../auth';
 import type { EngineRegistry } from '../data/engine';
 import * as metricsModule from '../data/metrics';
 import type { MetricCatalog, MetricDefinition } from '../data/metrics';
+import { renderPdf } from './pdf';
 import { runQuery, type QueryServices, type RunContext } from '../data/run';
 import type { Logger } from '../obs/logger';
 import { newShare, type ShareStore } from '../sharing/store';
@@ -58,6 +59,8 @@ export interface Subscription {
   widgets: string[];
   /** Include the dashboard's KPI values in the email body. */
   includeKpis: boolean;
+  /** Also attach a PDF report: KPIs and the selected widgets' data (D-096). */
+  attachPdf?: boolean;
   owner: string;
   ownerRole: 'editor' | 'viewer';
   /** The owner's row-level security attributes at creation: the job sees exactly what they saw. */
@@ -102,6 +105,12 @@ export interface Alert {
   lastFiredAt?: string;
   lastError?: string;
   nextRunAt: string;
+  /** Since D-094: no notifications until this time (checks still run, state still updates). */
+  snoozedUntil?: string;
+  /** Still firing this many minutes after it fired: notify `escalateTo` once per firing episode. */
+  escalateAfterMinutes?: number;
+  escalateTo?: string[];
+  escalatedAt?: string;
 }
 
 export interface RefreshSchedule {
@@ -128,9 +137,11 @@ export interface PlatformDeps {
   viewerBaseUrl?: string;
   logger?: Logger;
   now?: () => Date;
+  /** BI_METRIC_OWNERS: subjects allowed to change each team's metric catalog (D-078). */
+  metricOwners?: Record<string, string[]>;
 }
 
-const C = { comments: 'comments', favorites: 'favorites', recent: 'recent', subscriptions: 'subscriptions', alerts: 'alerts', refresh: 'refresh', metrics: 'metrics' } as const;
+const C = { comments: 'comments', favorites: 'favorites', recent: 'recent', subscriptions: 'subscriptions', alerts: 'alerts', refresh: 'refresh', metrics: 'metrics', metricVersions: 'metric_versions' } as const;
 
 /** The principal a job runs as: its owner, with the attributes captured when it was created. */
 function ownerPrincipal(teamId: string, r: { owner?: string; ownerRole?: 'editor' | 'viewer'; ownerAttributes?: Record<string, string[]> }): Principal {
@@ -299,12 +310,35 @@ export class PlatformService {
     };
   }
 
+  /** Per-widget usage (D-095): data loads and interactions (cross-filter / drill variants) per saved query. */
+  recordQueries(p: Principal, dashboardId: string, queries: Array<{ queryId: string; variant: boolean }>): void {
+    const at = day(this.now());
+    void (async () => {
+      for (const q of queries) await this.deps.store.increment(p.teamId, `${q.variant ? 'qinteract' : 'qloads'}:${dashboardId}:${q.queryId}`, at);
+    })().catch((error: unknown) => this.deps.logger?.warn('usage record failed', { error }));
+  }
+
   async dashboardUsage(teamId: string, dashboardId: string, days = 30) {
-    await this.requireDashboard(teamId, dashboardId);
+    const record = await this.requireDashboard(teamId, dashboardId);
     const from = day(new Date(this.now().getTime() - (days - 1) * 86_400_000));
     const rows = await this.deps.store.counters(teamId, `views:${dashboardId}`, from);
     const series = rows.filter((r) => r.counter === `views:${dashboardId}`).map((r) => ({ day: r.bucket, views: r.value }));
-    return { dashboardId, days, total: series.reduce((a, b) => a + b.views, 0), series };
+    // Widgets: a widget's numbers are its query's (widgets sharing a query share them).
+    const sum = async (kind: string) => {
+      const out = new Map<string, number>();
+      for (const r of await this.deps.store.counters(teamId, `${kind}:${dashboardId}:`, from)) {
+        const qid = r.counter.slice(`${kind}:${dashboardId}:`.length);
+        out.set(qid, (out.get(qid) ?? 0) + r.value);
+      }
+      return out;
+    };
+    const [loads, interactions] = await Promise.all([sum('qloads'), sum('qinteract')]);
+    const spec = record.spec as { widgets?: Record<string, { query?: string; type?: string; options?: { title?: unknown } }> };
+    const widgets = Object.entries(spec.widgets ?? {})
+      .filter(([, w]) => typeof w.query === 'string')
+      .map(([widgetId, w]) => ({ widgetId, type: w.type, title: typeof w.options?.title === 'string' ? w.options.title : undefined, loads: loads.get(w.query!) ?? 0, interactions: interactions.get(w.query!) ?? 0 }))
+      .sort((a, b) => b.interactions - a.interactions || b.loads - a.loads);
+    return { dashboardId, days, total: series.reduce((a, b) => a + b.views, 0), series, widgets };
   }
 
   // ── running a saved dashboard's queries (as a principal) ──
@@ -402,8 +436,16 @@ export class PlatformService {
         const line = lines.get((w as { query: string }).query);
         if (!line?.ok) return [];
         const name = ((w as { options?: { title?: string } }).options?.title ?? id).replace(/[^\w.-]+/g, '_').slice(0, 60) || id;
-        return [{ filename: `${name}.csv`, content: toCsv(line.result), contentType: 'text/csv' }];
+        return [{ filename: `${name}.csv`, content: toCsv(line.result) as string | Uint8Array, contentType: 'text/csv' }];
       });
+      if (sub.attachPdf) {
+        const sections = csvWidgets.flatMap(([id, w]) => {
+          const line = lines.get((w as { query: string }).query);
+          return line?.ok ? [{ title: (w as { options?: { title?: string } }).options?.title ?? id, result: line.result }] : [];
+        });
+        const pdf = renderPdf(dashboard.title, kpis.map((k) => ({ label: k.label, value: formatNumber(k.value) })), sections, at);
+        attachments.unshift({ filename: `${dashboard.title.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'report'}.pdf`, content: pdf, contentType: 'application/pdf' });
+      }
 
       // A fresh viewer link per email; the previous one is revoked, and each expires on its own.
       let link: string | undefined;
@@ -468,6 +510,15 @@ export class PlatformService {
     return alert;
   }
 
+  /** Snoozes (minutes > 0) or unsnoozes (0) an alert's notifications. */
+  async snoozeAlert(teamId: string, alertId: string, minutes: number): Promise<Alert> {
+    const rec = await this.deps.store.get<Alert>(teamId, C.alerts, alertId);
+    if (!rec) throw new PlatformError(404, 'not_found', 'Alert not found.');
+    const next: Alert = { ...rec.data, snoozedUntil: minutes > 0 ? new Date(this.now().getTime() + minutes * 60_000).toISOString() : undefined };
+    await this.deps.store.put(teamId, C.alerts, alertId, next);
+    return next;
+  }
+
   /** Evaluates an alert; notifies on a transition into "firing" (or always, when `force`). */
   async evaluateAlert(teamId: string, alert: Alert, options: { force?: boolean } = {}): Promise<Alert> {
     const at = this.now();
@@ -480,9 +531,28 @@ export class PlatformService {
       const value = reduceValue(line.result.rows, alert.field, alert.reduce);
       const firing = conditionMet(alert.op, alert.threshold, value, alert.lastValue);
       next = { ...next, lastValue: value, state: firing ? 'firing' : 'ok', lastError: undefined };
+      const snoozed = !options.force && alert.snoozedUntil !== undefined && Date.parse(alert.snoozedUntil) > at.getTime();
+      if (alert.snoozedUntil && !snoozed) next.snoozedUntil = undefined;
+      if (!firing) next.escalatedAt = undefined; // a new episode can escalate again
       if (firing && (alert.state !== 'firing' || options.force)) {
         next.lastFiredAt = at.toISOString();
-        const problems = await this.notifyAlert(dashboard, alert, value);
+        next.escalatedAt = undefined;
+        if (!snoozed) {
+          const problems = await this.notifyAlert(dashboard, alert, value);
+          if (problems.length) next.lastError = problems.join('; ');
+        }
+      } else if (
+        firing &&
+        !snoozed &&
+        alert.escalateAfterMinutes &&
+        alert.escalateTo?.length &&
+        !alert.escalatedAt &&
+        alert.lastFiredAt &&
+        at.getTime() - Date.parse(alert.lastFiredAt) >= alert.escalateAfterMinutes * 60_000
+      ) {
+        // Escalation (D-094): still firing after the grace period: tell the escalation list once.
+        next.escalatedAt = at.toISOString();
+        const problems = await this.notifyAlert(dashboard, { ...alert, recipients: alert.escalateTo, webhookUrl: undefined, name: `${alert.name} (still firing)` }, value);
         if (problems.length) next.lastError = problems.join('; ');
       }
     } catch (error) {
@@ -561,17 +631,56 @@ export class PlatformService {
     get: async (teamId: string) => (await this.deps.store.list<MetricDefinition>(teamId, C.metrics, { limit: 5000 })).map((r) => r.data).sort((a, b) => a.name.localeCompare(b.name)),
   };
 
-  async putMetric(teamId: string, name: string, def: Record<string, unknown>): Promise<MetricDefinition> {
+  /**
+   * Who may change a team's catalog (D-078): `BI_METRIC_OWNERS` lists subjects per team; teams without
+   * an entry let every editor change it (the previous behavior).
+   */
+  private assertMetricOwner(teamId: string, subject: string | undefined) {
+    const owners = this.deps.metricOwners?.[teamId];
+    if (owners && (!subject || !owners.includes(subject))) {
+      throw new PlatformError(403, 'not_metric_owner', 'Only the team\'s metric owners can change the metric catalog.');
+    }
+  }
+
+  async putMetric(teamId: string, name: string, def: Record<string, unknown>, subject?: string): Promise<MetricDefinition> {
+    this.assertMetricOwner(teamId, subject);
     const metric = { ...def, name } as MetricDefinition;
     const problems = validateMetric(metric);
     if (problems.length) throw new PlatformError(422, 'invalid_metric', problems.join('; '));
     await this.deps.store.put(teamId, C.metrics, name, metric);
+    await this.recordMetricVersion(teamId, name, metric, subject, 'saved');
     return metric;
   }
 
-  async deleteMetric(teamId: string, name: string): Promise<void> {
-    if (!(await this.deps.store.delete(teamId, C.metrics, name))) throw new PlatformError(404, 'not_found', `Metric "${name}" was not found.`);
+  async deleteMetric(teamId: string, name: string, subject?: string): Promise<void> {
+    this.assertMetricOwner(teamId, subject);
+    const old = await this.deps.store.get<MetricDefinition>(teamId, C.metrics, name);
+    if (!old || !(await this.deps.store.delete(teamId, C.metrics, name))) throw new PlatformError(404, 'not_found', `Metric "${name}" was not found.`);
+    await this.recordMetricVersion(teamId, name, old.data, subject, 'deleted');
   }
+
+  /** Every change is kept (never overwritten): who, when, what. Newest first. */
+  async metricHistory(teamId: string, name: string): Promise<MetricVersion[]> {
+    const rows = await this.deps.store.list<MetricVersion>(teamId, C.metricVersions, { prefix: `${name}:`, limit: 500 });
+    return rows.map((r) => r.data).sort((a, b) => b.version - a.version);
+  }
+
+  private async recordMetricVersion(teamId: string, name: string, metric: MetricDefinition, subject: string | undefined, action: 'saved' | 'deleted') {
+    const latest = (await this.metricHistory(teamId, name))[0]?.version ?? 0;
+    const version = latest + 1;
+    const entry: MetricVersion = { name, version, action, metric, by: subject ?? 'unknown', at: new Date().toISOString() };
+    await this.deps.store.put(teamId, C.metricVersions, `${name}:${String(version).padStart(6, '0')}`, entry);
+  }
+}
+
+/** One change to a catalog metric (D-078). */
+export interface MetricVersion {
+  name: string;
+  version: number;
+  action: 'saved' | 'deleted';
+  metric: MetricDefinition;
+  by: string;
+  at: string;
 }
 
 /** Same rule as the query layer's metric names (data/metrics.ts): lower-case. */

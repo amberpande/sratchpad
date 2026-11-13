@@ -5,11 +5,17 @@
  *   RateLimiter   – token bucket per (team, bucket): requests per minute, with bursts.
  *   QueryGate     – at most N queries executing per team at once; more wait in a bounded queue.
  *
- * Both are in-process. With several replicas each enforces its own share; move them to Redis if
- * exact global limits matter.
+ * RateLimiter is in-process; with several replicas each enforces its own share. With REDIS_URL,
+ * RedisRateLimiter counts across every replica (D-076). QueryGate stays per replica (it bounds this
+ * process's open connections, which is what it protects).
  */
 
-export class RateLimiter {
+/** Takes one request from a team's budget: 0 when allowed, else seconds until it would be. */
+export interface Limiter {
+  take(key: string): number | Promise<number>;
+}
+
+export class RateLimiter implements Limiter {
   private readonly buckets = new Map<string, { tokens: number; at: number }>();
 
   /** perMinute <= 0 disables the limit. */
@@ -102,5 +108,43 @@ export class QueryGate {
 
   active(teamId: string): number {
     return this.teams.get(teamId)?.active ?? 0;
+  }
+}
+
+/** The Redis commands the shared limiter needs (ioredis-compatible). */
+export interface RedisCounter {
+  incr(key: string): Promise<number>;
+  pexpire(key: string, ms: number): Promise<unknown>;
+}
+
+/**
+ * Global per-team limit across replicas: a fixed one-minute window per (bucket, team) in Redis.
+ * A Redis error falls back to the in-process bucket (limits never take the API down).
+ */
+export class RedisRateLimiter implements Limiter {
+  private readonly fallback: RateLimiter;
+
+  constructor(
+    private readonly redis: RedisCounter,
+    private readonly bucket: string,
+    private readonly perMinute: number,
+    private readonly now: () => number = Date.now,
+  ) {
+    this.fallback = new RateLimiter(perMinute, perMinute, now);
+  }
+
+  async take(key: string): Promise<number> {
+    if (this.perMinute <= 0) return 0;
+    const t = this.now();
+    const window = Math.floor(t / 60_000);
+    const k = `sratchpad:rl:${this.bucket}:${key}:${window}`;
+    try {
+      const count = await this.redis.incr(k);
+      if (count === 1) await this.redis.pexpire(k, 120_000);
+      if (count <= this.perMinute) return 0;
+      return Math.max(1, Math.ceil(((window + 1) * 60_000 - t) / 1000));
+    } catch {
+      return this.fallback.take(key);
+    }
   }
 }

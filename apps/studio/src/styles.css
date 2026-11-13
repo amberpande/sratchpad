@@ -282,3 +282,6 @@ p.banner { border-radius: 6px; }
 .sql-input { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.45; padding: 8px; border: 1px solid var(--s-border-strong); border-radius: 6px; resize: vertical; tab-size: 2; }
 .sql-section h4 + ul, .sql-section .q-row { margin-top: 6px; }
 .sql-section code.grow { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.signout-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; max-width: 848px; margin: 12px auto 0; padding: 0 16px; }
+.source-filter { width: 100%; box-sizing: border-box; margin-bottom: 6px; padding: 5px 8px; border: 1px solid var(--s-border-strong); border-radius: 6px; }
+.data-panel #source-select { flex: 1; min-width: 0; }

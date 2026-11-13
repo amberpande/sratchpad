@@ -43,7 +43,7 @@ export default function MapWidget({ widget, result, format }: WidgetProps<MapSpe
 
   const path = useMemo(() => {
     if (!size.width) return null;
-    const proj: GeoProjection = (o.basemap === 'usa' ? geoAlbersUsa() : geoNaturalEarth1()) as GeoProjection;
+    const proj: GeoProjection = (o.basemap === 'world' ? geoNaturalEarth1() : geoAlbersUsa()) as GeoProjection;
     proj.fitExtent(
       [
         [4, 4],

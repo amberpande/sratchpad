@@ -38,7 +38,7 @@ export interface CanvasProps {
 
 /** One canvas cell: the renderer's own DashboardView drawing a one-widget dashboard. */
 const LiveWidget = memo(function LiveWidget({ dashboard, client, params }: { dashboard: ValidDashboard; client: DataClient; params: Record<string, unknown> }) {
-  return <DashboardView dashboard={dashboard} version={0} client={client} params={params} showHeader={false} className="cell-render" />;
+  return <DashboardView dashboard={dashboard} version={0} client={client} params={params} showHeader={false} className="cell-render" ignoreVisibility />;
 });
 
 function Blocked({ type, message }: { type: string; message?: string }) {

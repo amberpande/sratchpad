@@ -1,5 +1,8 @@
 import {
+  DATE_PART_FUNCTIONS,
   dimensionAlias,
+  parseCalcExpr,
+  type DatePartFunction,
   evaluateCalc,
   measureAlias,
   outputColumns,
@@ -17,6 +20,7 @@ import {
   type WindowCalc,
 } from '@yourorg/bi-spec';
 import { EngineError } from '../engine';
+import { splitDetail } from '../sql/compile';
 import { checkQueryFields, effectiveOrder, parsedCalc } from '../query-check';
 
 /**
@@ -285,8 +289,18 @@ function joinRows(primary: readonly Row[], primaryFields: ReadonlySet<string>, q
 }
 
 export function runInMemoryQuery(sourceRows: readonly Row[], sourceFields: ReadonlySet<string>, query: Query, joined?: JoinedRows): QueryResult {
+  if (query.detail) {
+    // Level of detail (1.4): the same two passes as the SQL compiler (sql/compile.ts splitDetail).
+    const { inner, outer } = splitDetail(query);
+    const innerResult = runInMemoryQuery(sourceRows, sourceFields, { ...inner, limit: Number.MAX_SAFE_INTEGER }, joined);
+    const result = runInMemoryQuery(innerResult.rows, new Set(innerResult.columns.map((c) => c.name)), outer);
+    const innerCols = new Map(innerResult.columns.map((c) => [c.name, c]));
+    result.columns = result.columns.map((c, i) => (i < query.dimensions.length && innerCols.has(c.name) ? { ...innerCols.get(c.name)!, name: c.name } : c));
+    return result;
+  }
   if (query.metrics?.length) checkQueryFields(query, sourceFields); // throws metrics_not_expanded
-  const { rows, fields } = joinRows(sourceRows, sourceFields, query, joined);
+  const joinedOut = joinRows(sourceRows, sourceFields, query, joined);
+  const { rows, fields } = addRowFields(joinedOut.rows, joinedOut.fields, query);
   checkQueryFields(query, fields);
 
   // Column kinds, inferred from the data like a SQL engine's declared types.
@@ -471,7 +485,7 @@ export function runInMemoryQuery(sourceRows: readonly Row[], sourceFields: Reado
   });
 
   // Windows over the grouped rows (before ORDER BY / LIMIT, like SQL).
-  (query.windows ?? []).forEach((w, i) => applyWindow(out, w, i));
+  (query.windows ?? []).forEach((w, i) => applyWindow(out, w, i, query));
 
   // The author's order, then the dimensions as a tie-break (see effectiveOrder).
   const order: OrderBy[] = effectiveOrder(query);
@@ -503,7 +517,7 @@ export function runInMemoryQuery(sourceRows: readonly Row[], sourceFields: Reado
 }
 
 /** Window calcs with SQL window-function semantics, over rounded output values; result rounded. */
-function applyWindow(rows: Row[], w: WindowCalc, i: number) {
+function applyWindow(rows: Row[], w: WindowCalc, i: number, query: Query) {
   const valueOf = (r: Row): number | null => {
     const v = r[w.measure] ?? null;
     if (v !== null && typeof v !== 'number') throw new EngineError('invalid_window', `windows[${i}]: "${w.measure}" is not numeric.`);
@@ -542,9 +556,16 @@ function applyWindow(rows: Row[], w: WindowCalc, i: number) {
       case 'difference':
       case 'percent_change': {
         const off = w.offset ?? 1;
+        // Calendar windows (1.4): the row `off` periods earlier by date, not by position.
+        const grain = w.calendar ? query.dimensions.find((d) => (d.as ?? d.field) === w.order)?.grain : undefined;
+        const byDate = grain ? new Map(part.map((r, k) => [String(r[w.order!]), k])) : null;
         part.forEach((r, k) => {
           const v = vals[k]!;
-          const p = k - off >= 0 ? vals[k - off]! : null;
+          let p: number | null;
+          if (byDate && grain) {
+            const at = byDate.get(shiftIsoDate(String(r[w.order!]), grain, -off));
+            p = at === undefined ? null : vals[at]!;
+          } else p = k - off >= 0 ? vals[k - off]! : null;
           if (v === null || p === null) r[w.as] = null;
           else if (w.type === 'difference') r[w.as] = fin(v - p);
           else r[w.as] = p === 0 ? null : fin((v - p) / Math.abs(p));
@@ -572,5 +593,78 @@ function applyWindow(rows: Row[], w: WindowCalc, i: number) {
         break;
       }
     }
+  }
+}
+
+/** 'YYYY-MM-DD' moved by n periods of a grain (calendar windows). */
+export function shiftIsoDate(iso: string, grain: TimeGrain, n: number): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (grain === 'day') d.setUTCDate(d.getUTCDate() + n);
+  else if (grain === 'week') d.setUTCDate(d.getUTCDate() + 7 * n);
+  else if (grain === 'month') d.setUTCMonth(d.getUTCMonth() + n);
+  else if (grain === 'quarter') d.setUTCMonth(d.getUTCMonth() + 3 * n);
+  else d.setUTCFullYear(d.getUTCFullYear() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Row-level fields (1.4, D-083): evaluated per row before filters and grouping, like the SQL engines. */
+function addRowFields(rows: Row[], fields: Set<string>, query: Query): { rows: Row[]; fields: Set<string> } {
+  const defs = query.fields ?? [];
+  if (!defs.length) return { rows, fields };
+  const known = new Set(fields);
+  const kind = new Map<string, Kind>();
+  const kindOf = (name: string) => {
+    if (!kind.has(name)) kind.set(name, inferKind(rows.find((r) => (r[name] ?? null) !== null)?.[name]));
+    return kind.get(name)!;
+  };
+  const compiled = defs.map((fd, i) => {
+    const parsed = parseCalcExpr(fd.expr, { rowLevel: true });
+    if (!parsed.ok) throw new EngineError('invalid_expression', `fields[${i}] "${fd.as}": ${parsed.message}`);
+    const where = `fields[${i}] "${fd.as}"`;
+    const check = (n: CalcNode, dateArg = false): void => {
+      if (n.kind === 'ref') {
+        if (!known.has(n.name)) throw new EngineError('unknown_field', `${where}: unknown column "${n.name}".`);
+        const k = kindOf(n.name);
+        if (dateArg ? k !== 'date' && k !== 'unknown' : k !== 'number' && k !== 'unknown') {
+          throw new EngineError('invalid_expression', dateArg ? `${where}: date part needs a date column ("${n.name}" is not one).` : `${where}: "${n.name}" is not numeric (use year(), month(), … for dates).`);
+        }
+      } else if (n.kind === 'neg') check(n.arg);
+      else if (n.kind === 'bin') (check(n.left), check(n.right));
+      else if (n.kind === 'fn') n.args.forEach((a) => check(a, (DATE_PART_FUNCTIONS as readonly string[]).includes(n.fn)));
+    };
+    check(parsed.node);
+    known.add(fd.as);
+    kind.set(fd.as, 'number');
+    return { as: fd.as, node: parsed.node };
+  });
+  const out = rows.map((r) => {
+    const row: Row = { ...r };
+    for (const c of compiled) {
+      const v = evaluateCalc(c.node, {
+        ref: (name) => (typeof row[name] === 'number' ? (row[name] as number) : null),
+        agg: () => null,
+        datePart: (part, column) => datePartOf(row[column] ?? null, part),
+      });
+      row[c.as] = v === null || !Number.isFinite(v) ? null : v;
+    }
+    return row;
+  });
+  return { rows: out, fields: new Set([...fields, ...compiled.map((c) => c.as)]) };
+}
+
+function datePartOf(value: Cell, part: DatePartFunction): number | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const d = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  switch (part) {
+    case 'year':
+      return d.getUTCFullYear();
+    case 'quarter':
+      return Math.floor(d.getUTCMonth() / 3) + 1;
+    case 'month':
+      return d.getUTCMonth() + 1;
+    case 'day':
+      return d.getUTCDate();
+    case 'weekday':
+      return ((d.getUTCDay() + 6) % 7) + 1;
   }
 }

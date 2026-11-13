@@ -364,3 +364,33 @@ describe('custom SQL on Snowflake: role guard', () => {
     await expect(ok.execute(src, q, ctx)).resolves.toMatchObject({ rows: [] });
   });
 });
+
+describe('{{param}} placeholders (D-080)', () => {
+  it('bind date ranges, selects and lists before aggregation, never as text', async () => {
+    const s = spec(
+      {
+        sql: "SELECT region, COUNT(*) AS n FROM orders WHERE order_date BETWEEN {{range.from}} AND {{range.to}} AND ({{ch}} IS NULL OR channel = {{ch}}) AND region IN ({{regions}}) GROUP BY 1 ORDER BY 1",
+        columns: [{ name: 'region', role: 'dimension' }, { name: 'n', role: 'measure' }],
+      },
+      {
+        params: {
+          range: { type: 'daterange', field: 'order_date', default: { from: '2026-10-01', to: '2026-10-31' }, bind: [] },
+          ch: { type: 'select', field: 'channel', default: null, bind: [] },
+          regions: { type: 'multiselect', field: 'region', default: ['Europe', 'APAC'], bind: [] },
+        },
+      },
+    );
+    const { status, line } = await preview(app(), { spec: s, queries: ['q'] });
+    expect(status).toBe(200);
+    expect(line?.ok, JSON.stringify(line)).toBe(true);
+    if (line?.ok) expect(line.result.rows.map((r) => r.region)).toEqual(['APAC', 'Europe']);
+    // A hostile value is a bound value, not SQL: it matches no channel.
+    const hostile = await preview(app(), { spec: s, queries: ['q'], params: { ch: "Online' OR '1'='1" } });
+    expect(hostile.line?.ok && hostile.line.result.rows).toEqual([]);
+  });
+
+  it('an unknown placeholder is a validation error', () => {
+    const r = validateDashboard(spec({ sql: 'SELECT * FROM orders WHERE region = {{nope}}', columns }));
+    expect(r.ok ? [] : r.errors.map((e) => e.code)).toContain('unknown_reference');
+  });
+});

@@ -1,4 +1,6 @@
 import { serve } from '@hono/node-server';
+import { RedisRateLimiter } from './guard/limits';
+import { ChainVerifier, OidcVerifier } from './oidc';
 import { DashboardAssistant } from './ai/assistant';
 import { ClaudeRanker } from './ai/ranker';
 import { OllamaAssistantClient, OllamaRanker } from './ai/ollama';
@@ -131,15 +133,25 @@ const platformService = new PlatformService({
   webhooks: new HttpsWebhookSender({ allowedHosts: config.platform.webhookAllowedHosts, timeoutMs: config.platform.webhookTimeoutMs }),
   viewerBaseUrl,
   logger,
+  metricOwners: config.metricOwners,
 });
 queryServices.metricCatalog = platformService.metricCatalog;
 const scheduler = config.platform.schedulerEnabled
   ? new Scheduler({ store: platformStore, service: platformService, logger, intervalMs: config.platform.schedulerIntervalMs })
   : null;
 
+// Identity: SSO (OIDC) when configured, plus static tokens for service accounts and local dev.
+const oidc = config.oidc
+  ? new OidcVerifier({ issuer: config.oidc.issuer, clientId: config.oidc.clientId, groupsClaim: config.oidc.groupsClaim, groupMap: config.oidc.groupMap, attributeClaims: config.oidc.attributeClaims })
+  : null;
+const staticTokens = config.tokens ? StaticTokenVerifier.parse(config.tokens) : null;
+const auth = new ChainVerifier([staticTokens, oidc].filter((v): v is NonNullable<typeof v> => v !== null));
+
 const app = createApp({
   store,
-  auth: StaticTokenVerifier.parse(config.tokens),
+  auth,
+  authInfo: config.oidc ? { mode: 'oidc', issuer: config.oidc.issuer, clientId: config.oidc.clientId, scopes: config.oidc.scopes, viewerLogin: config.viewerLogin } : { mode: 'token' },
+  viewerLogin: config.viewerLogin && oidc ? oidc : undefined,
   engines: data.engines,
   sources: data.sources,
   corsOrigins: config.corsOrigins,
@@ -150,12 +162,16 @@ const app = createApp({
   platform: {
     service: platformService,
     onDashboardView: (principal, id) => platformService.recordView(principal, id),
+    onQueriesRun: (principal, id, queries) => platformService.recordQueries(principal, id, queries),
     schedulerEnabled: Boolean(scheduler),
     webhookAllowedHosts: config.platform.webhookAllowedHosts,
   },
   metrics,
   logger,
   rateLimits: config.rateLimits,
+  ...(config.aiTeams ? { aiTeams: new Set(config.aiTeams) } : {}),
+  // Shared Redis (the result cache's connection): limits hold across every ECS task.
+  ...(cache instanceof RedisResultCache ? { rateLimiter: (bucket: string, perMinute: number) => new RedisRateLimiter(cache.redis, bucket, perMinute) } : {}),
   metricsToken: config.metricsToken,
   shares,
   viewerUrl: config.viewerUrl,

@@ -62,6 +62,11 @@ export const WindowSchema = z
     dir: z.enum(['asc', 'desc']).optional(),
     /** rank: dense ranking (1, 2, 2, 3) instead of standard (1, 2, 2, 4). */
     dense: z.boolean().optional(),
+    /**
+     * Since 1.4 (difference, percent_change): `offset` counts calendar periods of the order dimension's grain,
+     * not rows, so a missing month still compares "same month last year" correctly (D-082).
+     */
+    calendar: z.boolean().optional(),
   })
   .strict();
 
@@ -107,10 +112,22 @@ export const SqlColumnSchema = z
     role: z.enum(['dimension', 'measure']),
     /** Wire type; inferred from the values when omitted (measures are always numbers). */
     type: z.enum(SQL_COLUMN_TYPES).optional(),
+    /** For time columns: the period each value starts (axis labels and drill-free formatting). */
+    grain: z.enum(['day', 'week', 'month', 'quarter', 'year']).optional(),
+  })
+  .strict();
+
+/** Since 1.4: a row-level calculated field, usable by name like a source column (D-083). */
+export const RowFieldSchema = z
+  .object({
+    as: field,
+    expr: z.string().min(1).max(2000),
   })
   .strict();
 
 export const QueryExtensionShape = {
+  /** Since 1.4: row-level fields (`amount * fx_rate`, `year(order_date)`), computed before filters and grouping. */
+  fields: z.array(RowFieldSchema).max(32).optional(),
   calcs: z.array(CalcSchema).max(32).optional(),
   windows: z.array(WindowSchema).max(16).optional(),
   topN: TopNSchema.optional(),
@@ -128,6 +145,7 @@ export type TopN = z.infer<typeof TopNSchema>;
 export type Join = z.infer<typeof JoinSchema>;
 export type MetricRef = z.infer<typeof MetricRefSchema>;
 export type SqlColumn = z.infer<typeof SqlColumnSchema>;
+export type RowField = z.infer<typeof RowFieldSchema>;
 
 const NEW_AGGS = new Set(['median', 'p25', 'p75', 'p90', 'stddev']);
 const NEW_OPS = new Set(['contains', 'starts_with', 'ends_with']);
@@ -139,7 +157,9 @@ const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.fi
 /** The lowest spec version a raw query needs because of 1.3 features (undefined = none). */
 export function queryExtensionSince(query: unknown): string | undefined {
   if (!isRecord(query)) return undefined;
-  if (query.sql !== undefined || query.columns !== undefined) return V14;
+  if (query.sql !== undefined || query.columns !== undefined || query.fields !== undefined || query.detail !== undefined) return V14;
+  if (list(query.windows).some((w) => w.calendar !== undefined)) return V14;
+  if (list(query.dimensions).some((d) => d.set !== undefined) || list(query.filters).some((f) => f.set !== undefined)) return V14;
   if (EXT_KEYS.some((k) => query[k] !== undefined)) return V13;
   if (list(query.measures).some((m) => NEW_AGGS.has(String(m.agg)))) return V13;
   if (list(query.filters).some((f) => NEW_OPS.has(String(f.op)))) return V13;
@@ -150,11 +170,16 @@ export function queryExtensionSince(query: unknown): string | undefined {
 /** Output alias of a catalog metric reference. */
 export const metricAlias = (m: MetricRef) => m.as ?? m.metric;
 
+/** Param ids a custom SQL query names with {{param}} / {{param.from}} placeholders (D-080). */
+export function sqlParamRefs(sql: string): string[] {
+  return [...new Set([...sql.matchAll(/\{\{\s*([A-Za-z][A-Za-z0-9_-]{0,63})(?:\.(?:from|to|low|high))?\s*\}\}/g)].map((m) => m[1]!))];
+}
+
 /** True for a custom SQL query (spec 1.4). */
 export const isSqlQuery = (q: Pick<Query, 'sql'>): boolean => typeof q.sql === 'string';
 
 /** Visual-query fields that a custom SQL query must not use. */
-const NOT_WITH_SQL = ['dimensions', 'measures', 'calcs', 'windows', 'topN', 'joins', 'metrics'] as const;
+const NOT_WITH_SQL = ['dimensions', 'measures', 'calcs', 'windows', 'topN', 'joins', 'metrics', 'fields', 'detail'] as const;
 
 /**
  * True when `sql` has a ";" outside string literals, quoted identifiers and comments, other than one
@@ -222,6 +247,7 @@ function validateSqlQuery(q: Query, raw: Record<string, unknown> | undefined, ct
     if (names.has(c.name)) err(`columns.${i}.name`, 'duplicate_column', `Column "${c.name}" is declared twice.`);
     names.add(c.name);
     if (c.role === 'measure' && c.type !== undefined && c.type !== 'number') err(`columns.${i}.type`, 'invalid_value', 'A measure column must be a number.');
+    if (c.grain !== undefined && c.type !== 'time') err(`columns.${i}.grain`, 'invalid_value', '"grain" only applies to a column with type "time".');
   });
   if (!q.columns?.length) {
     ctx.warnings.push({ path: `${base}.columns`, code: 'missing_columns', message: 'Declare the SQL result columns (Studio: "Run and detect columns") so widgets can use them.' });
@@ -238,6 +264,27 @@ export function validateQueryExtension(_queryId: string, q: Query, ctx: ExtConte
   const err = (path: string, code: string, message: string) => ctx.errors.push({ path: `${base}.${path}`, code, message });
   validateSqlQuery(q, ctx.raw, ctx);
   if (isSqlQuery(q)) return;
+  if (q.detail !== undefined && ctx.gate(`${base}.detail`, V14)) {
+    const detailNames = new Set(q.detail.measures.map((m) => m.as ?? (m.field === '*' ? m.agg : `${m.agg}_${m.field}`)));
+    const dimNames = new Set(q.dimensions.map((d) => d.as ?? d.field));
+    q.detail.dimensions.forEach((d, i) => {
+      if (dimNames.has(d.as ?? d.field)) err(`detail.dimensions.${i}`, 'invalid_value', `"${d.as ?? d.field}" is already a dimension of the query; a detail dimension must be finer.`);
+    });
+    q.measures.forEach((m, i) => {
+      if (m.field !== '*' && !detailNames.has(m.field)) err(`measures.${i}.field`, 'unknown_column', `With "detail", measures aggregate detail measures: "${m.field}" is not one (${[...detailNames].join(', ')}).`);
+    });
+    if (q.metrics?.length) err('metrics', 'invalid_value', 'Catalog metrics cannot be combined with "detail" yet.');
+  }
+  if (q.fields !== undefined && ctx.gate(`${base}.fields`, V14)) {
+    const seen = new Set<string>();
+    q.fields.forEach((f, i) => {
+      const parsed = parseCalcExpr(f.expr, { rowLevel: true });
+      if (!parsed.ok) err(`fields.${i}.expr`, 'invalid_expression', parsed.message);
+      else if (calcRefs(parsed.node).includes(f.as)) err(`fields.${i}.expr`, 'invalid_expression', 'A field cannot refer to itself.');
+      if (seen.has(f.as)) err(`fields.${i}.as`, 'duplicate_column', `Field "${f.as}" is defined twice.`);
+      seen.add(f.as);
+    });
+  }
 
   // Base-schema additions.
   q.measures.forEach((m, i) => NEW_AGGS.has(m.agg) && ctx.gate(`${base}.measures.${i}.agg`, V13));
@@ -296,6 +343,12 @@ export function validateQueryExtension(_queryId: string, q: Query, ctx: ExtConte
       if (w.window !== undefined && w.type !== 'moving_average') err(`windows.${i}.window`, 'invalid_value', '"window" only applies to moving_average.');
       if (w.offset !== undefined && w.type !== 'difference' && w.type !== 'percent_change') err(`windows.${i}.offset`, 'invalid_value', '"offset" only applies to difference and percent_change.');
       if ((w.dir !== undefined || w.dense !== undefined) && w.type !== 'rank') err(`windows.${i}`, 'invalid_value', '"dir" and "dense" only apply to rank.');
+      if (w.calendar !== undefined && ctx.gate(`${base}.windows.${i}.calendar`, V14)) {
+        if (w.type !== 'difference' && w.type !== 'percent_change') err(`windows.${i}.calendar`, 'invalid_value', '"calendar" only applies to difference and percent_change.');
+        else if (w.order && !q.dimensions.find((d) => (d.as ?? d.field) === w.order)?.grain) {
+          err(`windows.${i}.calendar`, 'invalid_value', `"calendar" needs "order" to be a time dimension with a grain (e.g. month).`);
+        }
+      }
     });
   }
 

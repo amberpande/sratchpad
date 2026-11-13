@@ -45,7 +45,7 @@ function setup(opts: { mailer?: Mailer | null; webhooks?: WebhookSender; rls?: R
     auth: StaticTokenVerifier.parse(DEV_TOKENS),
     engines: defaultEngines(now),
     now,
-    platform: { service, onDashboardView: (p, id) => service.recordView(p, id), schedulerEnabled: true },
+    platform: { service, onDashboardView: (p, id) => service.recordView(p, id), onQueriesRun: (p, id, q) => service.recordQueries(p, id, q), schedulerEnabled: true },
   });
   const call = async (method: string, path: string, { token = EDITOR, body }: { token?: string; body?: unknown } = {}) => {
     const res = await app.request(path, {
@@ -164,6 +164,20 @@ describe('platform routes', () => {
     expect((await call('GET', '/v1/metrics-catalog', { token: OTHER })).json).toEqual({ metrics: [] });
     expect(await service.metricCatalog.get('team-a')).toHaveLength(1);
     expect((await call('DELETE', '/v1/metrics-catalog/revenue')).status).toBe(204);
+    // History (D-078): every save and the delete are kept, newest first, with who changed it.
+    const history = (await call('GET', '/v1/metrics-catalog/revenue/history', { token: VIEWER })).json as { versions: Array<{ version: number; action: string; by: string; metric: { agg: string } }> };
+    expect(history.versions.map((v) => [v.version, v.action, v.by])).toEqual([
+      [2, 'deleted', 'dev-a'],
+      [1, 'saved', 'dev-a'],
+    ]);
+  });
+
+  it('metric owners (BI_METRIC_OWNERS): only listed subjects change the catalog', async () => {
+    const { service } = await seeded();
+    const owned = new PlatformService({ ...(service as unknown as { deps: ConstructorParameters<typeof PlatformService>[0] }).deps, metricOwners: { 'team-a': ['ana'] } });
+    await expect(owned.putMetric('team-a', 'revenue', { field: 'amount', agg: 'sum' }, 'dev-a')).rejects.toMatchObject({ status: 403 });
+    await expect(owned.putMetric('team-a', 'revenue', { field: 'amount', agg: 'sum' }, 'ana')).resolves.toMatchObject({ name: 'revenue' });
+    await expect(owned.putMetric('team-b', 'revenue', { field: 'amount', agg: 'sum' }, 'dev-b')).resolves.toMatchObject({ name: 'revenue' });
   });
 });
 
@@ -197,6 +211,40 @@ describe('subscriptions', () => {
   });
 });
 
+describe('PDF report attachment (D-096)', () => {
+  it('attaches a valid PDF with the title, KPIs and the widget table', async () => {
+    const s = await seeded();
+    const sub = await s.service.createSubscription({ teamId: 'team-a', subject: 'dev-a', role: 'editor' }, { dashboardId: 'dash_9f2a', name: 'Daily', recipients: ['a@example.com'], schedule: { frequency: 'daily', time: '08:00', timezone: 'UTC' }, widgets: ['w_region'], includeKpis: true, attachPdf: true });
+    await s.service.runSubscription('team-a', sub, { reschedule: false });
+    const mail = (s.mailer as FakeMailer).sent.at(-1)!;
+    const pdf = mail.attachments!.find((a) => a.contentType === 'application/pdf')!;
+    const text = Buffer.from(pdf.content as Uint8Array).toString('latin1');
+    expect(text.startsWith('%PDF-1.4')).toBe(true);
+    expect(text.trimEnd().endsWith('%%EOF')).toBe(true);
+    expect(text).toContain('(Sales overview)');
+    // Every xref offset points at its object.
+    const xref = Number(/startxref\n(\d+)/.exec(text)![1]);
+    const entries = text.slice(xref).split('\n').slice(2).filter((l) => / n $/.test(l));
+    entries.forEach((e, i) => expect(text.slice(Number(e.slice(0, 10)), Number(e.slice(0, 10)) + 12)).toMatch(new RegExp(`^${i + 1} 0 obj`)));
+    expect(mail.attachments!.some((a) => a.filename.endsWith('.csv'))).toBe(true);
+  });
+});
+
+describe('per-widget usage (D-095)', () => {
+  it('counts data loads and interactions per widget', async () => {
+    const s = await seeded();
+    const run = (queries: unknown[]) => s.call('POST', '/v1/dashboards/dash_9f2a/data', { body: { queries } });
+    await run(['q_rev_by_region', 'q_totals']);
+    await run(['q_rev_by_region']);
+    s.service.recordQueries({ teamId: 'team-a', subject: 'dev-a' }, 'dash_9f2a', [{ queryId: 'q_rev_by_region', variant: true }]);
+    await new Promise((r) => setTimeout(r, 10));
+    const usage = (await s.call('GET', '/v1/dashboards/dash_9f2a/usage')).json as { widgets: Array<{ widgetId: string; loads: number; interactions: number }> };
+    const region = usage.widgets.find((w) => w.loads === 2)!;
+    expect(region).toMatchObject({ loads: 2, interactions: 1 });
+    expect(usage.widgets[0]!.interactions).toBe(1); // most-interacted first
+  });
+});
+
 describe('alerts', () => {
   it('fires once on the transition, emails and calls the webhook, then stays quiet until it recovers', async () => {
     const send = vi.fn(async () => ({ ok: true, status: 200 }));
@@ -215,6 +263,32 @@ describe('alerts', () => {
     expect(secret).toBe(alert.webhookSecret);
     await s.service.evaluateAlert('team-a', fired);
     expect(send).toHaveBeenCalledTimes(1); // still firing: no repeat
+  });
+
+  it('snooze silences notifications; escalation tells a second list once per firing episode (D-094)', async () => {
+    const s = await seeded({ webhooks: { send: vi.fn(async () => ({ ok: true, status: 200 })) } });
+    const mail = s.mailer as FakeMailer;
+    const base = { dashboardId: 'dash_9f2a', name: 'Orders', queryId: 'q_totals', field: 'orders', reduce: 'sum' as const, op: 'gt' as const, threshold: 1, intervalMinutes: 15, recipients: ['ops@example.com'] };
+    // Snoozed: the check runs and the state flips to firing, but nobody is emailed.
+    const quiet = await s.service.createAlert({ teamId: 'team-a', subject: 'dev-a' }, base);
+    const snoozed = await s.service.snoozeAlert('team-a', quiet.id, 60);
+    const first = await s.service.evaluateAlert('team-a', snoozed);
+    expect(first.state).toBe('firing');
+    expect(mail.sent).toHaveLength(0);
+    // Escalation: fires to ops, then after 30 min still firing goes to the manager list, once.
+    const esc = await s.service.createAlert({ teamId: 'team-a', subject: 'dev-a' }, { ...base, escalateAfterMinutes: 30, escalateTo: ['boss@example.com'] });
+    let a = await s.service.evaluateAlert('team-a', esc);
+    expect(mail.sent.map((m) => m.to)).toEqual([['ops@example.com']]);
+    s.setClock(new Date('2026-11-10T07:20:00Z'));
+    a = await s.service.evaluateAlert('team-a', a);
+    expect(mail.sent).toHaveLength(1);
+    s.setClock(new Date('2026-11-10T07:35:00Z'));
+    a = await s.service.evaluateAlert('team-a', a);
+    expect(mail.sent.at(-1)!.to).toEqual(['boss@example.com']);
+    expect(mail.sent.at(-1)!.subject).toContain('still firing');
+    s.setClock(new Date('2026-11-10T08:30:00Z'));
+    await s.service.evaluateAlert('team-a', a);
+    expect(mail.sent).toHaveLength(2);
   });
 
   it('change_pct compares with the previous value; reduce and conditions', () => {

@@ -6,6 +6,47 @@ tested with fakes.
 
 ## 2026-11-13
 
+### Interactivity, visuals and delivery gaps (D-087 to D-096)
+- Click-to-filter in the Studio preview; drill on the series dimension; show/hide widgets by a control (`visibleWhen`);
+  brush a time range on line charts; keyboard selection of chart marks; ISO alpha country codes and a US counties
+  basemap (lazy-loaded); five more theme font families incl. `inherit`.
+- Alert snooze and escalation; per-widget usage (loads, interactions) with a Studio Usage dialog; PDF report
+  attachments in subscription emails (text PDF, built-in fonts).
+- Tests: preview client variants, drill-series, visibility, brushed range filters, keyboard marks, geo codes and
+  counties, alerts (snooze, escalation), usage, PDF structure. PDF checked visually with Quick Look. **Not verified:**
+  brushing, series drill, keyboard toolbar and counties map in a real browser session; PDF in real mail clients.
+
+### Analysis gaps (D-079 to D-086)
+- Row-level security on joined sources (supersedes D-065); `{{param}}` placeholders in custom SQL (bound, never text;
+  params may be unbound); SQL column `grain`; trend lines and linear forecasts with a 95% band on line charts;
+  calendar-aware YoY / period comparisons; row-level fields (numeric + date parts); level of detail (`detail`, two-pass);
+  k-means clustering on scatter plots; reusable value sets.
+- Tests: conformance (reference ≡ DuckDB) for calendar windows, row fields and level of detail; joins-integration
+  (joined RLS); custom-sql (placeholders, injection value); sets; renderer trend and cluster units. **Not verified:**
+  the Snowflake SQL for calendar windows, row fields and detail against a live account (shape test only); the new
+  chart options in a browser.
+
+### Platform gaps (D-076 to D-078)
+- Global per-team rate limits across ECS tasks through the shared Redis, falling back to in-process limits (D-076).
+- `BI_AI_TEAMS`: AI features only for listed teams; others get rules and no assistant (D-077).
+- Metric catalog: version history (who, when, what) with Restore in the Studio; `BI_METRIC_OWNERS` limits who can change
+  a team's catalog (D-078).
+- Snowflake source listing pages past 1,000 objects (up to 50,000); Studio source filter box and **↻** refresh
+  (`/v1/sources?refresh=1`).
+- `npm run smoke -w @yourorg/bi-api`: the first-deploy smoke test as a script (PASS/FAIL per step).
+- Tests: `limits-redis.test.ts`, recommendations (team switch), platform (history, owners), snowflake (paging,
+  refresh). **Not verified:** a real Redis/ElastiCache; listing paging against a live Snowflake account.
+
+### Single sign-on (D-074, D-075)
+- Any OIDC provider (Cognito, Okta, Entra ID, …): API verifies signed ID tokens (discovery, JWKS with rotation,
+  RS/PS/ES), maps IdP groups to team and role (`OIDC_GROUP_MAP`) and claims to row-level attributes. Studio and viewer
+  sign in with the PKCE code flow (`@yourorg/bi-auth-client`), renew with refresh tokens, and sign out. Static tokens
+  remain for service accounts. `BI_VIEWER_LOGIN=on` makes viewer links require a company sign-in of the share's team.
+  D-027 superseded.
+- Tests: `services/api/test/oidc.test.ts`, `packages/auth-client/test`. Verified live in Chrome against a local mock
+  provider (sign-in, redirect back to the deep link, API access, sign-out button). **Not verified:** a real
+  Cognito/Okta/Entra tenant; the viewer sign-in in a browser (covered by API tests).
+
 ### Fix: dashboard list layout in the Studio
 - The card style (`.dash-list button`) also matched the favorite star, so each star rendered as a second wide card and
   squeezed the dashboard card into a narrow column. Card styles now apply only to the open button (`.dash-open`); the

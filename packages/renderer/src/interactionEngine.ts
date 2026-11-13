@@ -22,6 +22,8 @@ interface Selection {
   column: string;
   grain?: TimeGrain;
   values: Cell[];
+  /** A brushed time range: values = [from, to] (bucket starts, inclusive). */
+  range?: boolean;
 }
 
 export interface NavigateRequest {
@@ -30,7 +32,7 @@ export interface NavigateRequest {
 }
 
 type W = RenderableWidget & {
-  drill?: { levels: Array<{ field: string; grain?: TimeGrain; label?: string }> };
+  drill?: { levels: Array<{ field: string; grain?: TimeGrain; label?: string }>; dimension?: number };
   drillThrough?: { dashboardId: string; params?: Record<string, string> };
   interactions?: { crossFilter?: boolean };
 };
@@ -52,7 +54,7 @@ export function useInteractionEngine(dashboard: ValidDashboard, onNavigate?: (re
       const idx = q.dimensions.findIndex((d) => (d.as ?? d.field) === column);
       if (idx < 0) return undefined;
       const drilled = drills[widgetId];
-      if (idx === 0 && drilled && w.drill) {
+      if (idx === (w.drill?.dimension ?? 0) && drilled && w.drill) {
         const lvl = w.drill.levels[drilled.level]!;
         return { field: lvl.field, grain: lvl.grain };
       }
@@ -76,6 +78,12 @@ export function useInteractionEngine(dashboard: ValidDashboard, onNavigate?: (re
             if (!interactive) return;
             if (drill && !atBottom) {
               if (!scalarValue(sel.value) && sel.value !== null) return;
+              // Only clicks on the drilled dimension's marks drill (1.4: e.g. the series line, not the x axis).
+              if (drill.dimension !== undefined) {
+                const q = w.query ? dashboard.queries[w.query] : undefined;
+                const d = q?.dimensions[drill.dimension];
+                if (!d || sel.field !== (d.as ?? d.field)) return;
+              }
               setDrills((d) => {
                 const cur = d[widgetId] ?? { level: 0, path: [] };
                 return { ...d, [widgetId]: { level: cur.level + 1, path: [...cur.path, sel.value] } };
@@ -103,7 +111,15 @@ export function useInteractionEngine(dashboard: ValidDashboard, onNavigate?: (re
           },
           isSelected(field, value) {
             if (!selection || selection.widgetId !== widgetId || selection.column !== field) return undefined;
+            if (selection.range) return typeof value === 'string' && value >= String(selection.values[0]) && value <= String(selection.values[1]);
             return selection.values.includes(value);
+          },
+          selectRange({ field, from, to }) {
+            if (!widgetCrossFilters(w) || typeof from !== 'string' || typeof to !== 'string') return;
+            const dim = dimensionOf(widgetId, field);
+            if (!dim?.grain) return;
+            const [a, b] = from <= to ? [from, to] : [to, from];
+            setSelection({ widgetId, field: dim.field, column: field, grain: dim.grain, values: [a, b], range: a !== b });
           },
         };
       },
@@ -142,9 +158,11 @@ export function useInteractionEngine(dashboard: ValidDashboard, onNavigate?: (re
       const allowed = crossFilterFields(dashboard, w.query).get(selection.field);
       if (allowed && (!selection.grain || allowed.has(selection.grain))) {
         const values = selection.values.filter(scalarValue) as Array<string | number | boolean>;
-        const filter: RuntimeFilter = selection.grain
-          ? { field: selection.field, op: 'eq', grain: selection.grain, values: values.slice(0, 1) }
-          : { field: selection.field, op: 'in', values };
+        const filter: RuntimeFilter = selection.range
+          ? { field: selection.field, op: 'between', grain: selection.grain, values: values.slice(0, 2) }
+          : selection.grain
+            ? { field: selection.field, op: 'eq', grain: selection.grain, values: values.slice(0, 1) }
+            : { field: selection.field, op: 'in', values };
         if (values.length) runtime.filters = [filter];
       }
     }
