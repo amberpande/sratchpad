@@ -12,8 +12,8 @@
 .badge { font-size: 11px; border-radius: 999px; padding: 0 6px; border: 1px solid var(--s-border-strong); }
 .badge.state-firing { background: #fde7e7; border-color: #e5a0a0; }
 .badge.state-ok { background: #e6f4ea; border-color: #9fcfaf; }
-.dash-list .dash-row { display: flex; align-items: center; gap: 6px; }
-.dash-list .dash-row > button:first-child { flex: 1; }
+.dash-list .dash-row { position: relative; }
+.dash-list .dash-row .star { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); }
 .star { font-size: 16px; line-height: 1; background: transparent; border: 0; cursor: pointer; color: var(--s-text-3); padding: 4px 6px; }
 .star[aria-pressed='true'] { color: #d4a000; }
 .list-tools { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
