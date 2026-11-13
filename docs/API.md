@@ -51,6 +51,13 @@ SDK: `<Dashboard onNavigate={({ dashboardId, params }) => …} />` handles drill
 Query errors added in 1.3 (per NDJSON line): `invalid_expression`, `invalid_calc`, `invalid_window`, `invalid_top_n`,
 `invalid_dimension`, `invalid_join`, `unknown_metric`, `invalid_metric`, `metrics_not_expanded`, `duplicate_column`.
 
+Custom SQL queries (spec 1.4) run through the same routes (saved: `/v1/dashboards/:id/data`; drafts: `/v1/preview/data`,
+editors only). A SQL query without declared `columns` returns every column it selects, typed (the Studio uses this
+to detect columns). Errors per line: `invalid_sql` (more than one statement, empty), `sql_error` (the engine's
+message for the author's SQL, file paths removed), `custom_sql_disabled` (`BI_CUSTOM_SQL=off`),
+`custom_sql_unavailable` (uploads stored in Snowflake, or a Snowflake team without its own role), `rls_denied`
+(row-level security applies to the principal), `unknown_source`, `unknown_field` (a filter on an undeclared column).
+
 ## Draft preview, sources and uploads (editors)
 
 | Route | |

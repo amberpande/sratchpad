@@ -139,6 +139,14 @@ Schemas migrate on boot; concurrent tasks converge.
 - **SQL safety:** SQL is generated only from the spec; identifiers quoted; every value is a bind
   parameter; the only inlined number is a validated `LIMIT`. DDL for uploads uses server-generated names
   and quoted headers only.
+- **Custom SQL (spec 1.4, D-070..D-073):** an editor's `sql` query is checked to be one statement and run as a
+  subquery of a server-built statement (dashboard sources as CTEs, declared columns, filters as binds, `LIMIT n+1`),
+  so only a query can run. Snowflake: under the team's own role (required, and never the app store or uploads role;
+  sessions allow one statement), so grants decide what it reads. Local uploads and sample data: a throwaway DuckDB
+  per query with external access off, `allowed_paths` = the team's referenced upload files, settings locked, prepared
+  statement. Refused on uploads stored in Snowflake (shared uploads role), where row-level security applies to the
+  principal, and when `BI_CUSTOM_SQL=off`. Viewers and share tokens run only saved SQL; the assistant cannot add or
+  change SQL. Code: `services/api/src/data/sql/custom.ts`, `duckdb/runtime.ts` (`sandboxQuery`).
 - **Secrets:** share tokens and access tokens are never logged; share secrets stored as SHA-256 hashes;
   viewer links keep tokens in the URL fragment; production secrets come from Secrets Manager.
 - **AI:** the model sees profile summaries only. For suggestions it can only pick rule-built candidates; the

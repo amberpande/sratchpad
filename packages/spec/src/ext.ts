@@ -8,6 +8,8 @@ import type { Issue } from './types';
 
 /** The version that introduces the 1.3 features (calculations, interactivity, new visuals, platform). */
 export const V13 = '1.3';
+/** The version that introduces custom SQL queries (`sql` + `columns`). */
+export const V14 = '1.4';
 
 export interface ExtContext {
   errors: Issue[];

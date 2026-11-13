@@ -89,7 +89,7 @@ function t(strings: TemplateStringsArray, ...frags: Array<Frag | string | number
   return out;
 }
 
-const ISO_TEMPORAL = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?)?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+export const ISO_TEMPORAL = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?)?(Z|[+-]\d{2}(:?\d{2})?)?$/;
 
 function wireType(kind: ColumnKind): ResultColumn['type'] {
   switch (kind) {
@@ -118,7 +118,7 @@ const isNumeric = (kind: ColumnKind) => kind === 'integer' || kind === 'number';
 
 const PERCENTILES: Record<string, number> = { median: 0.5, p25: 0.25, p75: 0.75, p90: 0.9 };
 
-interface Col {
+export interface Col {
   sql: string;
   kind: ColumnKind;
 }
@@ -486,7 +486,7 @@ export function likePattern(op: 'contains' | 'starts_with' | 'ends_with', value:
 }
 
 /** A filter (or bucket rule) on a resolved column, as SQL with its binds. */
-function predicate(c: Col, op: string, value: Cell | Cell[] | undefined, where: string, field: string): Frag {
+export function predicate(c: Col, op: string, value: Cell | Cell[] | undefined, where: string, field: string): Frag {
   const colSql = c.sql;
   const params: BindValue[] = [];
   const one = () => bind(value as Cell, c.kind, params, where);

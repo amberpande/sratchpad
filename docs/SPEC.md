@@ -146,7 +146,36 @@ compiler follows the same rules (tested against a fake driver).
   numeric columns, ISO dates for date columns), else `invalid_filter`.
 - `limit` defaults to 1,000, max 10,000; results report `truncated`.
 - SQL is generated only from the spec: identifiers quoted, every value a bind parameter, the only
-  inlined number the validated `LIMIT` (`limit + 1` to detect truncation).
+  inlined number the validated `LIMIT` (`limit + 1` to detect truncation). Custom SQL queries (1.4) are the
+  exception and follow their own rules (below).
+
+## Custom SQL queries (spec 1.4)
+
+A query may be written as SQL instead of dimensions and measures (D-070):
+
+```json
+"q_paid_by_month": {
+  "source": "orders",
+  "sql": "SELECT date_trunc('month', order_date) AS order_date, SUM(amount) AS revenue\nFROM orders\nWHERE status = 'paid'\nGROUP BY 1",
+  "columns": [
+    { "name": "order_date", "role": "dimension", "type": "time" },
+    { "name": "revenue", "role": "measure" }
+  ],
+  "orderBy": [{ "field": "order_date", "dir": "asc" }],
+  "limit": 1000
+}
+```
+
+| Field | Rules |
+| --- | --- |
+| `sql` | One `SELECT` (or `WITH … SELECT`), max 20,000 characters; one trailing `;` allowed. Not with `dimensions`, `measures`, `calcs`, `windows`, `topN`, `joins` or `metrics`. |
+| `columns` | The result columns widgets, sort and filters use: `name` exactly as the SQL returns it (Snowflake upper-cases unquoted aliases), `role` `dimension` or `measure`, optional `type` `string` / `number` / `time` / `boolean` (measures are numbers). Without `columns` the query is valid (warning `missing_columns`) and returns every column, but widgets cannot bind to it. |
+| `source` | Picks the engine. The SQL names the dashboard's data sources of that engine by id (`FROM orders`); on Snowflake also any table the team's role can read (`DB.SCHEMA.TABLE`). |
+| `filters`, `orderBy`, `limit` | Apply to the SQL's result columns. Params bound to the query filter a declared column (a `daterange` without `field` uses the first `time` column); a param bound to an undeclared column, or a `measure` param, is a validation error. Cross-filters may use the query's declared dimension columns. |
+
+Not available on SQL queries: drill-down, measure switches, catalog metrics. The SQL dialect is the engine's:
+Snowflake SQL for Snowflake sources, DuckDB SQL for uploads and sample data. How the server runs it safely:
+[`ARCHITECTURE.md`](ARCHITECTURE.md) (security model), D-071, D-072.
 
 ## Calculations (spec 1.3)
 

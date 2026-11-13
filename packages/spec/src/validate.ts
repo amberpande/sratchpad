@@ -199,7 +199,7 @@ export function validateDashboard(input: unknown, options: ValidateOptions = {})
       errors.push({ path: `${base}.source`, code: 'unknown_reference', message: `Data source "${q.source}" is not defined in dataSources.` });
     }
     // Output columns, not just dimensions/measures: a query of catalog metrics or calcs alone is valid.
-    if (outputColumns(q).length === 0) {
+    if (outputColumns(q).length === 0 && q.sql === undefined) {
       errors.push({ path: base, code: 'empty_query', message: 'A query needs at least one dimension or measure.' });
     }
     q.measures.forEach((m, i) => {
@@ -224,7 +224,8 @@ export function validateDashboard(input: unknown, options: ValidateOptions = {})
       }
     });
     columnsByQuery.set(qid, names);
-    validateQueryExtension(qid, q, { ...ext, base, dataSourceIds: present.dataSources });
+    const rawQuery = (raw.queries as Record<string, unknown>)[qid];
+    validateQueryExtension(qid, q, { ...ext, base, dataSourceIds: present.dataSources, raw: isRecord(rawQuery) ? rawQuery : undefined });
   }
 
   // ── widgets ──
@@ -411,6 +412,23 @@ export function validateDashboard(input: unknown, options: ValidateOptions = {})
         return;
       }
       const q = queries[qid];
+      // Custom SQL (1.4): a bound filter applies to the SQL's result, so its column must be declared there.
+      if (q && typeof q.sql === 'string') {
+        const declared = new Set((q.columns ?? []).map((c) => c.name));
+        const field = param.type === 'daterange' ? dateRangeField(param, q) : (param as { field?: unknown }).field;
+        if (param.type === 'measure') {
+          errors.push({ path: `${base}.bind.${i}`, code: 'invalid_value', message: `Query "${qid}" is custom SQL; a measure switch cannot change it. Unbind it from this query.` });
+        } else if (typeof field === 'string' && !declared.has(field)) {
+          errors.push({
+            path: `${base}.bind.${i}`,
+            code: 'unknown_column',
+            message: `Query "${qid}" is custom SQL and returns no "${field}" column for this filter. Return it from the SQL (e.g. "... AS ${field}"), declare it, or unbind the filter from this query.`,
+          });
+        } else if (field === undefined && param.type === 'daterange') {
+          errors.push({ path: `${base}.bind.${i}`, code: 'unresolvable_field', message: `Query "${qid}" is custom SQL with no declared time column; set "field" on the param or declare a column with type "time".` });
+        }
+        return;
+      }
       if (q && param.type === 'daterange' && !dateRangeField(param, q)) {
         errors.push({
           path: `${base}.bind.${i}`,

@@ -92,7 +92,8 @@ export class SdkSnowflakeDriver implements SnowflakeDriver {
         await this.run(
           conn,
           `ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = ${Math.floor(this.config.statementTimeoutSeconds)}, ` +
-            `TIMEZONE = 'UTC', QUERY_TAG = ${quoteLiteral(`sratchpad:${teamId}`)}`,
+            // One statement per call: custom SQL (spec 1.4) can never smuggle in a second one.
+            `TIMEZONE = 'UTC', MULTI_STATEMENT_COUNT = 1, QUERY_TAG = ${quoteLiteral(`sratchpad:${teamId}`)}`,
           [],
         );
         this.prepared.add(conn);

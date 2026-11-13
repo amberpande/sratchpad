@@ -1,4 +1,4 @@
-import { compareSpecVersions, parseSpecVersion, SPEC_VERSION, type DataSource, type LayoutItem, type QueryInput, type Recommendation } from '@yourorg/bi-spec';
+import { compareSpecVersions, parseSpecVersion, queryExtensionSince, SPEC_VERSION, type DataSource, type LayoutItem, type QueryInput, type Recommendation } from '@yourorg/bi-spec';
 import { uniqueId } from './ids';
 import { compactLayout, findSpot } from './layout';
 import { bindTarget, boundQueries } from './params';
@@ -252,7 +252,10 @@ export function draftReducer(draft: DraftSpec, action: DraftAction): DraftSpec {
 
     case 'updateQuery': {
       if (!draft.queries[action.id]) return draft;
-      return afterQueryChange({ ...draft, queries: { ...draft.queries, [action.id]: action.query } }, action.id);
+      const next = afterQueryChange({ ...draft, queries: { ...draft.queries, [action.id]: action.query } }, action.id);
+      // Newer query features (1.3 calcs, 1.4 custom SQL) raise specVersion so the draft stays valid.
+      const since = queryExtensionSince(action.query);
+      return since ? raiseSpecVersion(next, since) : next;
     }
 
     case 'applyField': {

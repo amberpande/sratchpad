@@ -45,6 +45,8 @@ export interface Config {
   seed: boolean;
   seedTeam: string;
   queryTimeoutMs: number;
+  /** Custom SQL queries for editors (spec 1.4, D-070). BI_CUSTOM_SQL=on|off, default on. */
+  customSql: boolean;
   /** Where uploads' Parquet copies live (default services/api/.data). */
   dataDir?: string;
   /** Null when Snowflake is not configured. */
@@ -140,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     seed: env.BI_SEED === '1' || store === 'memory',
     seedTeam: env.BI_SEED_TEAM ?? 'team-a',
     queryTimeoutMs: Number(env.BI_QUERY_TIMEOUT_MS ?? 15_000),
+    customSql: oneOf(env.BI_CUSTOM_SQL, ['on', 'off'] as const, 'on', 'BI_CUSTOM_SQL') === 'on',
     dataDir: env.BI_DATA_DIR || undefined,
     snowflake,
     llm: {

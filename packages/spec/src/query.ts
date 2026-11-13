@@ -1,5 +1,5 @@
 import type { Aggregation, Dimension, Measure, Query, TimeGrain } from './schema';
-import type { Calc, MetricRef, WindowCalc, WindowType } from './query-ext';
+import type { Calc, MetricRef, SqlColumn, WindowCalc, WindowType } from './query-ext';
 
 /** A column in a query's result set. */
 export interface OutputColumn {
@@ -10,7 +10,7 @@ export interface OutputColumn {
   grain?: TimeGrain;
   agg?: Aggregation;
   /** Since 1.3: how the column is computed when it is not a plain dimension or measure. */
-  derived?: 'bin' | 'buckets' | 'calc' | 'window' | 'metric';
+  derived?: 'bin' | 'buckets' | 'calc' | 'window' | 'metric' | 'sql';
   /** For windows: the window type. */
   window?: WindowType;
   /** For catalog metrics: the metric name. */
@@ -30,14 +30,18 @@ type OutputQuery = Pick<Query, 'dimensions' | 'measures'> & {
   calcs?: Calc[];
   windows?: WindowCalc[];
   metrics?: MetricRef[];
+  sql?: string;
+  columns?: SqlColumn[];
 };
 
 /**
  * The result columns a semantic query produces, in order: dimensions, measures, catalog metrics,
- * calcs, windows. (After the server expands catalog metrics they become measures or calcs; the
+ * calcs, windows; for a custom SQL query, its declared columns. (After the server expands catalog metrics they become measures or calcs; the
  * names are unchanged.)
  */
 export function outputColumns(query: OutputQuery): OutputColumn[] {
+  // Spec 1.4 custom SQL: the author-declared result columns.
+  if (typeof query.sql === 'string') return (query.columns ?? []).map((c) => ({ name: c.name, role: c.role, field: c.name, derived: 'sql' as const }));
   return [
     ...query.dimensions.map<OutputColumn>((d) => ({
       name: dimensionAlias(d),

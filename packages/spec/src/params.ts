@@ -29,8 +29,11 @@ export function bindQueryId(target: string): string {
 }
 
 /** The source date column a daterange param filters on a given query. */
-export function dateRangeField(param: DateRangeParam, query: Pick<Query, 'dimensions'>): string | undefined {
-  return param.field ?? query.dimensions.find((d) => d.grain)?.field;
+export function dateRangeField(param: DateRangeParam, query: Pick<Query, 'dimensions'> & Partial<Pick<Query, 'sql' | 'columns'>>): string | undefined {
+  if (param.field) return param.field;
+  // Custom SQL (1.4): the first declared time column.
+  if (typeof query.sql === 'string') return query.columns?.find((c) => c.type === 'time')?.name;
+  return query.dimensions.find((d) => d.grain)?.field;
 }
 
 export type CoerceResult = { ok: true; value: ParamValue } | { ok: false; message: string };

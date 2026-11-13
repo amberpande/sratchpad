@@ -15,8 +15,8 @@ export interface SpecVersion {
 }
 
 /** The spec version this build of the package writes and fully understands. */
-export const SPEC_VERSION = '1.3';
-export const SUPPORTED_SPEC: SpecVersion = { major: 1, minor: 3 };
+export const SPEC_VERSION = '1.4';
+export const SUPPORTED_SPEC: SpecVersion = { major: 1, minor: 4 };
 
 /**
  * What each minor added, newest last. Every entry is additive: documents written for an earlier
@@ -46,6 +46,10 @@ export const SPEC_CHANGELOG: ReadonlyArray<{ version: string; changes: string[] 
     changes: [
       'Calculations, interactivity, new visuals and platform features. Every addition is optional (see docs/SPEC.md).',
     ],
+  },
+  {
+    version: '1.4',
+    changes: ['Custom SQL queries: optional query `sql` (one SELECT) with declared result `columns`, instead of the visual query fields.'],
   },
 ];
 

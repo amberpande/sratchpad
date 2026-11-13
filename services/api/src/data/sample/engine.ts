@@ -3,6 +3,9 @@ import { EngineError, type Engine, type ExecuteContext } from '../engine';
 import { buildProfile, statsFromRows } from '../profile';
 import type { SourceProvider } from '../sources';
 import { joinedSources } from '../sql/joins';
+import { compileCustomSql, sqlErrorMessage, toCustomResult, type SqlQuery } from '../sql/custom';
+import { duckdb } from '../sql/dialect';
+import { DuckDBRuntime } from '../duckdb/runtime';
 import { runInMemoryQuery, type JoinedRows, type Row } from './execute';
 
 export interface SampleDataset {
@@ -19,6 +22,8 @@ export class SampleEngine implements Engine {
   constructor(
     private readonly datasets: Record<string, SampleDatasetFactory>,
     private readonly now: () => Date = () => new Date(),
+    /** Runs custom SQL (spec 1.4) over sample rows in a sandboxed DuckDB; without it, SQL queries are refused. */
+    private readonly sqlRuntime?: DuckDBRuntime,
   ) {}
 
   /** Names of the datasets this engine serves. */
@@ -49,6 +54,7 @@ export class SampleEngine implements Engine {
         `Sample dataset "${source.ref}" does not exist. Available: ${this.names().join(', ')}.`,
       );
     }
+    if (typeof query.sql === 'string') return this.executeSql(query, ctx);
     const joined = new Map() as Map<string, { rows: readonly Row[]; fields: ReadonlySet<string> }>;
     for (const { id, source: js } of joinedSources(query, source)) {
       const other = this.load(js.ref);
@@ -56,6 +62,31 @@ export class SampleEngine implements Engine {
       joined.set(id, other);
     }
     return runInMemoryQuery(data.rows, data.fields, query, joined as JoinedRows);
+  }
+
+  /** Custom SQL over sample datasets: each named source is loaded into a sandboxed, file-less DuckDB. */
+  private async executeSql(query: SqlQuery, ctx: ExecuteContext): Promise<QueryResult> {
+    if (!this.sqlRuntime) throw new EngineError('custom_sql_unavailable', 'Custom SQL is not available on sample data on this server.');
+    const tables: Array<{ id: string; table: string; data: SampleDataset }> = [];
+    for (const { id, source } of query.sqlSources ?? []) {
+      const data = this.load(source.ref);
+      if (!data) throw new EngineError('unknown_source', `Sample dataset "${source.ref}" does not exist.`);
+      tables.push({ id, table: `__sample_${id}`, data });
+    }
+    const compiled = compileCustomSql(query, { dialect: duckdb, sources: tables.map((t) => ({ name: t.id, relation: { sql: `"${t.table}"`, params: [] } })) });
+    try {
+      const out = await this.sqlRuntime.sandboxQuery(compiled.sql, compiled.params, {
+        allowedPaths: [],
+        signal: ctx.signal,
+        setup: async (conn) => {
+          for (const t of tables) await DuckDBRuntime.loadRows(conn, t.table, t.data.fields, t.data.rows);
+        },
+      });
+      return toCustomResult(compiled, query.columns ?? [], out.rows, out.columns);
+    } catch (error) {
+      if (ctx.signal.aborted || error instanceof EngineError) throw error;
+      throw new EngineError('sql_error', sqlErrorMessage(error));
+    }
   }
 }
 
@@ -67,6 +98,8 @@ export class SampleSources implements SourceProvider {
   constructor(
     private readonly engine: SampleEngine,
     private readonly now: () => Date = () => new Date(),
+    /** Runs custom SQL (spec 1.4) over sample rows in a sandboxed DuckDB; without it, SQL queries are refused. */
+    private readonly sqlRuntime?: DuckDBRuntime,
   ) {}
 
   async list(): Promise<SourceSummary[]> {

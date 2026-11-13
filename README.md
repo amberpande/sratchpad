@@ -34,9 +34,10 @@ applications, and can be shared read-only with business users. One shared backen
 | 5 · Harden & scale | Safe for every team on one backend | Cache, per-team limits, metrics, logs, roles, sharing, ECS image, Snowflake-only storage |
 | Beyond | Build by talking; full control of the look | Studio chat assistant; spec 1.2 styling (themes, colors, labels, axes) |
 | Spec 1.3 | Close the Tableau/Qlik gaps | Calculations, interactivity, row-level security, 11 new chart types, formatting, exports, subscriptions, alerts, comments, metric catalog ([capabilities](docs/CAPABILITIES.md)) |
+| Spec 1.4 | Full control for developers | Custom SQL for any chart (Studio SQL mode; wrapped, sandboxed, team-role scoped) |
 
 **Not yet verified against live services:** the Snowflake paths (hybrid-table store, Iceberg uploads,
-query engine incl. 1.3 SQL), the Claude ranker and assistant, and email/webhook delivery are tested with fakes
+query engine incl. 1.3 SQL and 1.4 custom SQL), the Claude ranker and assistant, and email/webhook delivery are tested with fakes
 and adapters. Run the
 [first-deploy smoke test](docs/DEPLOYMENT.md#5-first-deploy-smoke-test-do-this-on-a-non-trial-snowflake-account).
 **Not built yet:** SSO (the Studio uses access tokens until then).

@@ -423,6 +423,7 @@ export function Studio({ api, draft: initialDraft, saved: initialSaved, latestVe
               fields={selectedFields}
               dispatch={dispatch}
               onRemove={() => removeWidget(selected)}
+              runDraftQuery={(spec, queryId) => api.runDraftQuery(spec, queryId)}
             />
           ) : (
             <DashboardInspector draft={draft} issues={issues} dispatch={dispatch} savedVersion={saved?.version ?? 0} fieldsBySourceId={fieldsBySourceId} />

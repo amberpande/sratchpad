@@ -6,6 +6,21 @@ tested with fakes.
 
 ## 2026-11-12
 
+### Custom SQL for any chart: spec 1.4 (D-070 to D-073)
+- Queries may carry `sql` (one SELECT) and declared `columns` instead of the visual fields. Studio: **Visual builder /
+  SQL** switch per query, starting SELECT written from the current query, **Run and detect columns**, role/type per
+  column. Dashboard filters and cross-filters apply to the result columns; the validator flags filters bound to
+  columns the SQL does not return. `BI_CUSTOM_SQL=on|off` (default on).
+- Safety: single statement (dialect-aware check) run as a subquery of a server-built SELECT (sources as CTEs, filters as
+  binds, row cap); local uploads and sample data in a throwaway DuckDB with external access off, `allowed_paths` = the
+  team's referenced uploads, settings locked; Snowflake under the team's own role only (never the app store or uploads
+  role; `MULTI_STATEMENT_COUNT = 1`); refused on uploads stored in Snowflake and where row-level security applies; the
+  assistant cannot add or change SQL.
+- Tests: `services/api/test/custom-sql.test.ts` (spec, compiler, sandbox escapes, cross-team upload access, flag, RLS,
+  Snowflake role guard). Verified live: API and Studio in headless Chrome on sample data (SQL mode, column detection,
+  chart render, date range filter). **Not verified:** Snowflake custom SQL against a live account (fake driver only);
+  custom SQL on real uploads in the browser (covered by engine tests).
+
 ### Fix: Studio went blank after an assistant message (D-069)
 - The assistant panel's scroll effect returned Chrome's `scrollIntoView` Promise, which React called as cleanup and
   crashed the whole page. Effects now return nothing; the assistant panel and inspector sit behind an error boundary

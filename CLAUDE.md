@@ -57,7 +57,10 @@ only with `TEST_DATABASE_URL`. Use a throwaway local cluster or container, never
 - **Team isolation everywhere:** every store read is team-scoped, other teams' objects read as 404,
   cache keys include the team.
 - **SQL only from the spec:** quoted identifiers, every value a bind parameter, only the validated
-  `LIMIT` inlined. DDL uses server-generated names and quoted headers only.
+  `LIMIT` inlined. DDL uses server-generated names and quoted headers only. The one exception is a
+  developer's custom SQL query (spec 1.4, D-070..D-073): it runs only as a single statement wrapped in a
+  server-built SELECT (filters as binds, row cap), in a sandboxed DuckDB or under a separate read-only
+  team role on Snowflake; refused where row-level security applies; never written by the assistant.
 - **Share tokens** are read-only, confined to one dashboard, stored as hashes, shown once, never logged.
 - **AI** sees profile summaries only (never rows, ids or measure values), picks only rule-built
   candidates, and its absence or failure falls back to rules.

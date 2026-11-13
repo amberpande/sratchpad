@@ -31,6 +31,17 @@ joins, catalog metrics" a small JSON box adds running totals, % of total, rank, 
 year-over-year change, top-N with "Other", joins to another source of the same kind, and team catalog metrics.
 Buckets (e.g. amount < 100 → "Small") are written in the JSON view.
 
+**Custom SQL (developers).** In a widget's **Data** tab, switch the query from **Visual builder** to **SQL**. The
+Studio writes a starting SELECT from the current query; edit it, then click **Run and detect columns**. The result
+columns appear below it: numbers become measures, the rest dimensions (change the role or type if needed), and the
+chart picks them up. Name this dashboard's data sources by their id (`FROM orders`); on Snowflake you can also use
+any table your team's role can read (`DB.SCHEMA.TABLE`). Use the engine's SQL (Snowflake SQL on Snowflake, DuckDB
+SQL on uploads and sample data); one SELECT only. Dashboard filters apply to the result, so a date range filter on
+`order_date` needs the SQL to return `order_date` (e.g. `date_trunc('month', order_date) AS order_date`); the
+Studio flags filters it cannot apply. Not available: drill-down, measure switches, catalog metrics, and SQL on
+uploads stored in Snowflake or where row-level security applies to your team. Switching back to the visual builder
+removes the SQL. The assistant does not write SQL.
+
 ## Styling a dashboard
 
 Every dashboard can have a theme (light or dark mode, series colors, accent, page and card backgrounds,

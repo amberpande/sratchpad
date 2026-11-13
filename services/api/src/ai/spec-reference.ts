@@ -132,6 +132,8 @@ Interactivity (since 1.3):
 - widget drillThrough: ${describe(DrillThroughSchema)} (needs the host app; viewer links can't follow it)
 - widget interactions: { crossFilter: false } opts a widget out of cross-filtering
 
-Not supported by the spec today (say so; offer the closest alternative): row-level expressions over columns before aggregation (other than bins/buckets); level-of-detail expressions; joins across different engines (e.g. an upload with a Snowflake table) and joining a row-secured source; calendar-aware period offsets (window offsets count rows); forecasting and trend lines; drill on a series value (only the first dimension drills); show/hide containers; map geographies other than world countries (names/ISO numeric) and US states, ISO alpha country codes, counties; arbitrary CSS and custom fonts beyond the theme options.`;
+Not supported by the spec today (say so; offer the closest alternative): row-level expressions over columns before aggregation (other than bins/buckets); level-of-detail expressions; joins across different engines (e.g. an upload with a Snowflake table) and joining a row-secured source; calendar-aware period offsets (window offsets count rows); forecasting and trend lines; drill on a series value (only the first dimension drills); show/hide containers; map geographies other than world countries (names/ISO numeric) and US states, ISO alpha country codes, counties; arbitrary CSS and custom fonts beyond the theme options.
+
+Custom SQL queries (query "sql" + "columns") are written by developers themselves in the Studio's SQL mode: never add or edit "sql" or "columns"; build queries from dimensions, measures and calcs. If the developer asks for SQL, tell them to switch the widget's query to SQL in the inspector.`;
   return cached;
 }

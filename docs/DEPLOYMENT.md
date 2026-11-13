@@ -30,6 +30,16 @@ GRANT ROLE BI_APP_ROLE TO USER SRATCHPAD_SVC;
 
 -- For dashboards on teams' own tables: per-team roles and warehouses (SNOWFLAKE_TEAM_CONFIG),
 -- each granted to SRATCHPAD_SVC and given SELECT on what that team may see.
+-- Keep team roles SELECT-only and separate from BI_APP_ROLE: developers' custom SQL (spec 1.4) runs under
+-- the team role and can read anything it can. Custom SQL is refused for a team without its own role, or whose
+-- role is the app store or uploads role (D-071).
+CREATE ROLE TEAM_A_READ;
+GRANT USAGE ON WAREHOUSE TEAM_A_WH TO ROLE TEAM_A_READ;
+GRANT USAGE ON DATABASE SALES TO ROLE TEAM_A_READ;
+GRANT USAGE ON ALL SCHEMAS IN DATABASE SALES TO ROLE TEAM_A_READ;
+GRANT SELECT ON ALL TABLES IN DATABASE SALES TO ROLE TEAM_A_READ;
+GRANT SELECT ON ALL VIEWS IN DATABASE SALES TO ROLE TEAM_A_READ;
+GRANT ROLE TEAM_A_READ TO USER SRATCHPAD_SVC;
 ```
 
 The app creates and migrates its tables, stage and file format on boot and on first upload.
@@ -135,6 +145,7 @@ All configuration is environment variables (read in `services/api/src/config.ts`
 | `BI_EXAMPLES_DIR` | repo `examples/dashboards` | Where the seed dashboards are |
 | `BI_DATA_DIR` | `services/api/.data` (image: `/tmp/sratchpad`) | Local upload files (transient with Snowflake uploads) |
 | `BI_QUERY_TIMEOUT_MS` | `15000` | Per-query timeout |
+| `BI_CUSTOM_SQL` | `on` | `off` refuses custom SQL queries (spec 1.4) on every path. On Snowflake they also need a per-team role (below) |
 
 ### Storage
 

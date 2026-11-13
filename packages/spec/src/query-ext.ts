@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { calcRefs, parseCalcExpr } from './calc-expr';
-import { V13, type ExtContext } from './ext';
+import { V13, V14, type ExtContext } from './ext';
 import type { Query } from './schema';
 
 export * from './calc-expr';
@@ -14,6 +14,10 @@ export * from './calc-expr';
  *   topN     keep the top N values of a dimension, the rest folded into "Other" (server-side)
  *   joins    join other data sources of the same engine type
  *   metrics  measures from the team's metric catalog, expanded on the server
+ *
+ * Spec 1.4 adds custom SQL (see SqlColumnSchema): `sql` replaces dimensions/measures/calcs/windows/
+ * topN/joins/metrics; `columns` declares the result columns widgets bind to. The server checks and
+ * wraps the SQL (data/sql/custom.ts); the spec only checks its shape.
  *
  * Dimension `bin` / `buckets`, the aggregations median/p25/p75/p90/stddev and the filter operators
  * contains/starts_with/ends_with live on the base schemas in schema.ts and are gated here too.
@@ -90,12 +94,32 @@ export const MetricRefSchema = z
   })
   .strict();
 
+/** Custom SQL text: one SELECT (or WITH … SELECT) statement. */
+export const MAX_SQL_LENGTH = 20_000;
+export const SQL_COLUMN_TYPES = ['string', 'number', 'time', 'boolean'] as const;
+export type SqlColumnType = (typeof SQL_COLUMN_TYPES)[number];
+
+/** A result column of a custom SQL query, as the author declares it (Studio fills these by running the SQL). */
+export const SqlColumnSchema = z
+  .object({
+    /** The column name exactly as the SQL returns it (Snowflake upper-cases unquoted aliases). */
+    name: field,
+    role: z.enum(['dimension', 'measure']),
+    /** Wire type; inferred from the values when omitted (measures are always numbers). */
+    type: z.enum(SQL_COLUMN_TYPES).optional(),
+  })
+  .strict();
+
 export const QueryExtensionShape = {
   calcs: z.array(CalcSchema).max(32).optional(),
   windows: z.array(WindowSchema).max(16).optional(),
   topN: TopNSchema.optional(),
   joins: z.array(JoinSchema).max(3).optional(),
   metrics: z.array(MetricRefSchema).max(32).optional(),
+  /** Since 1.4: custom SQL instead of the visual query fields. */
+  sql: z.string().min(1).max(MAX_SQL_LENGTH).optional(),
+  /** Since 1.4: the result columns of `sql`. */
+  columns: z.array(SqlColumnSchema).max(64).optional(),
 };
 
 export type Calc = z.infer<typeof CalcSchema>;
@@ -103,6 +127,7 @@ export type WindowCalc = z.infer<typeof WindowSchema>;
 export type TopN = z.infer<typeof TopNSchema>;
 export type Join = z.infer<typeof JoinSchema>;
 export type MetricRef = z.infer<typeof MetricRefSchema>;
+export type SqlColumn = z.infer<typeof SqlColumnSchema>;
 
 const NEW_AGGS = new Set(['median', 'p25', 'p75', 'p90', 'stddev']);
 const NEW_OPS = new Set(['contains', 'starts_with', 'ends_with']);
@@ -114,6 +139,7 @@ const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.fi
 /** The lowest spec version a raw query needs because of 1.3 features (undefined = none). */
 export function queryExtensionSince(query: unknown): string | undefined {
   if (!isRecord(query)) return undefined;
+  if (query.sql !== undefined || query.columns !== undefined) return V14;
   if (EXT_KEYS.some((k) => query[k] !== undefined)) return V13;
   if (list(query.measures).some((m) => NEW_AGGS.has(String(m.agg)))) return V13;
   if (list(query.filters).some((f) => NEW_OPS.has(String(f.op)))) return V13;
@@ -124,10 +150,94 @@ export function queryExtensionSince(query: unknown): string | undefined {
 /** Output alias of a catalog metric reference. */
 export const metricAlias = (m: MetricRef) => m.as ?? m.metric;
 
-/** Cross-field checks for the 1.3 fields of one parsed query (version gate first). */
-export function validateQueryExtension(_queryId: string, q: Query, ctx: ExtContext & { base: string; dataSourceIds: Set<string> }): void {
+/** True for a custom SQL query (spec 1.4). */
+export const isSqlQuery = (q: Pick<Query, 'sql'>): boolean => typeof q.sql === 'string';
+
+/** Visual-query fields that a custom SQL query must not use. */
+const NOT_WITH_SQL = ['dimensions', 'measures', 'calcs', 'windows', 'topN', 'joins', 'metrics'] as const;
+
+/**
+ * True when `sql` has a ";" outside string literals, quoted identifiers and comments, other than one
+ * trailing ";". The server re-checks (the statement also runs wrapped in a subquery, where anything
+ * but a SELECT is a syntax error); this gives the author the error early.
+ */
+export function sqlHasMultipleStatements(sql: string, dialect: 'snowflake' | 'duckdb' | 'any' = 'any'): boolean {
+  // Snowflake-only syntax: backslash escapes in strings ('it\'s'), "//" comments, $$…$$ strings. In
+  // DuckDB "//" is integer division. "any" (the spec's early check) accepts both; the server passes
+  // the engine's dialect, so its check is exact.
+  const sf = dialect !== 'duckdb';
+  let i = 0;
+  let lastSemicolon = -1;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+    if (ch === "'" || ch === '"') {
+      i += 1;
+      while (i < n) {
+        if (sql[i] === ch) {
+          if (sql[i + 1] === ch) i += 2;
+          else break;
+        } else if (sf && ch === "'" && sql[i] === '\\') i += 2;
+        else i += 1;
+      }
+      i += 1;
+    } else if (ch === '-' && next === '-') {
+      while (i < n && sql[i] !== '\n') i += 1;
+    } else if (sf && ch === '/' && next === '/') {
+      while (i < n && sql[i] !== '\n') i += 1;
+    } else if (ch === '/' && next === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      i = end < 0 ? n : end + 2;
+    } else if (sf && ch === '$' && next === '$') {
+      const end = sql.indexOf('$$', i + 2);
+      i = end < 0 ? n : end + 2;
+    } else {
+      if (ch === ';') {
+        if (lastSemicolon >= 0) return true;
+        lastSemicolon = i;
+      } else if (lastSemicolon >= 0 && !/\s/.test(ch)) return true;
+      i += 1;
+    }
+  }
+  return false;
+}
+
+function validateSqlQuery(q: Query, raw: Record<string, unknown> | undefined, ctx: ExtContext & { base: string }): void {
+  const { base } = ctx;
+  const err = (path: string, code: string, message: string) => ctx.errors.push({ path: `${base}${path ? `.${path}` : ''}`, code, message });
+  if (q.sql === undefined) {
+    if (q.columns !== undefined && ctx.gate(`${base}.columns`, V14)) err('columns', 'invalid_value', '"columns" only applies to a query with "sql".');
+    return;
+  }
+  if (!ctx.gate(`${base}.sql`, V14)) return;
+  for (const k of NOT_WITH_SQL) {
+    const v = raw ? raw[k] : q[k];
+    if (v !== undefined && !(Array.isArray(v) && v.length === 0)) err(k, 'invalid_value', `A custom SQL query cannot also use "${k}"; compute it in the SQL instead.`);
+  }
+  if (!q.sql.trim()) err('sql', 'invalid_value', 'The SQL is empty.');
+  else if (sqlHasMultipleStatements(q.sql)) err('sql', 'invalid_sql', 'Write one SELECT statement (no ";" between statements).');
+  const names = new Set<string>();
+  (q.columns ?? []).forEach((c, i) => {
+    if (names.has(c.name)) err(`columns.${i}.name`, 'duplicate_column', `Column "${c.name}" is declared twice.`);
+    names.add(c.name);
+    if (c.role === 'measure' && c.type !== undefined && c.type !== 'number') err(`columns.${i}.type`, 'invalid_value', 'A measure column must be a number.');
+  });
+  if (!q.columns?.length) {
+    ctx.warnings.push({ path: `${base}.columns`, code: 'missing_columns', message: 'Declare the SQL result columns (Studio: "Run and detect columns") so widgets can use them.' });
+  }
+  // Filters (from the author, params or cross-filters) apply to the SQL's result columns.
+  q.filters.forEach((f, i) => {
+    if (!names.has(f.field)) err(`filters.${i}.field`, 'unknown_column', `"${f.field}" is not a declared column of this SQL query.`);
+  });
+}
+
+/** Cross-field checks for the 1.3 and 1.4 fields of one parsed query (version gate first). */
+export function validateQueryExtension(_queryId: string, q: Query, ctx: ExtContext & { base: string; dataSourceIds: Set<string>; raw?: Record<string, unknown> }): void {
   const { base } = ctx;
   const err = (path: string, code: string, message: string) => ctx.errors.push({ path: `${base}.${path}`, code, message });
+  validateSqlQuery(q, ctx.raw, ctx);
+  if (isSqlQuery(q)) return;
 
   // Base-schema additions.
   q.measures.forEach((m, i) => NEW_AGGS.has(m.agg) && ctx.gate(`${base}.measures.${i}.agg`, V13));

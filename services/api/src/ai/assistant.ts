@@ -203,6 +203,22 @@ function raiseSpecVersion(draft: Record<string, unknown>) {
   }
 }
 
+/** True when an edit adds, changes or removes any query's custom SQL or its declared columns (D-070). */
+export function sqlChanged(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+  const sqlOf = (doc: Record<string, unknown>) => {
+    const queries = (doc.queries && typeof doc.queries === 'object' ? doc.queries : {}) as Record<string, Record<string, unknown> | undefined>;
+    return Object.fromEntries(
+      Object.entries(queries)
+        .filter(([, q]) => q && (q.sql !== undefined || q.columns !== undefined))
+        .map(([id, q]) => [id, JSON.stringify([q!.sql, q!.columns])]),
+    );
+  };
+  const a = sqlOf(before);
+  const b = sqlOf(after);
+  // Removing a whole SQL query (with its widget) is allowed; adding or editing SQL is not.
+  return Object.entries(b).some(([id, v]) => a[id] !== v);
+}
+
 /** A reply that is only a tool call written as JSON text, e.g. {"name": "update_dashboard", …}. */
 export function looksLikeToolCallText(text: string): boolean {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '');
@@ -511,6 +527,9 @@ export class DashboardAssistant {
             next = applyPatch(draft, ops as PatchOp[]);
           } catch (error) {
             return { content: (error as Error).message, isError: true };
+          }
+          if (sqlChanged(draft, next)) {
+            return { content: 'Not applied: custom SQL ("sql" and "columns" on a query) is written by the developer in the Studio, never by the assistant. The draft is unchanged.', isError: true };
           }
           raiseSpecVersion(next);
           const introduced = check(next).filter((i) => !baseline.has(issueKey(i)));

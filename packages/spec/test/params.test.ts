@@ -87,7 +87,7 @@ describe('outputColumns', () => {
 describe('checkCompatibility', () => {
   it('classifies versions against the supported range', () => {
     expect(checkCompatibility('1.0').level).toBe('full');
-    expect(checkCompatibility('1.4').level).toBe('degraded');
+    expect(checkCompatibility('1.5').level).toBe('degraded');
     expect(checkCompatibility('2.0').level).toBe('unsupported');
     expect(checkCompatibility('0.9').level).toBe('unsupported');
     expect(checkCompatibility('v1').level).toBe('unsupported');

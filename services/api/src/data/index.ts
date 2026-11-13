@@ -54,6 +54,8 @@ export interface DataLayerOptions {
   snowflakeUploads?: SnowflakeUploadsConfig | null;
   /** Override the uploads driver (tests use a fake). */
   snowflakeUploadsDriver?: SnowflakeDriver;
+  /** Roles that can read Sratchpad's own records (e.g. the app store role): custom SQL never runs under them. */
+  snowflakePrivilegedRoles?: string[];
 }
 
 export interface DataLayer {
@@ -70,7 +72,7 @@ export function createDataLayer(options: DataLayerOptions = {}): DataLayer {
   const runtime = options.duckdbRuntime ?? new DuckDBRuntime();
   const registry: FileSourceRegistry = options.fileRegistry ?? new JsonFileSourceRegistry(dataDir);
 
-  const sample = new SampleEngine({ orders: generateOrders }, now);
+  const sample = new SampleEngine({ orders: generateOrders }, now, runtime);
 
   // Uploads in Snowflake: one driver under the uploads role/warehouse (never a team's role; the
   // registry's team-scoped lookup is the access check), shared by the loader and the query engine.
@@ -87,7 +89,7 @@ export function createDataLayer(options: DataLayerOptions = {}): DataLayer {
       teams: {},
     };
     uploadsDriver = options.snowflakeUploadsDriver ?? new SdkSnowflakeDriver(uploadsConnection);
-    uploadsEngine = new SnowflakeEngine(uploadsDriver, uploadsConnection, { now });
+    uploadsEngine = new SnowflakeEngine(uploadsDriver, uploadsConnection, { now, customSql: false });
     loader = new SnowflakeIcebergLoader(uploadsDriver, options.snowflakeUploads);
   }
 
@@ -98,7 +100,9 @@ export function createDataLayer(options: DataLayerOptions = {}): DataLayer {
   let driver: SnowflakeDriver | undefined;
   if (options.snowflake) {
     driver = options.snowflakeDriver ?? new SdkSnowflakeDriver(options.snowflake);
-    const sf = new SnowflakeEngine(driver, options.snowflake, { now });
+    // Roles that can read the app's own records never run custom SQL (D-070).
+    const privilegedRoles = [options.snowflakeUploads?.role, ...(options.snowflakePrivilegedRoles ?? [])].filter((r): r is string => !!r);
+    const sf = new SnowflakeEngine(driver, options.snowflake, { now, customSql: { privilegedRoles } });
     engines.snowflake = sf;
     providers.push(sf);
   } else {

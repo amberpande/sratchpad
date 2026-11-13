@@ -3,6 +3,7 @@ import { EngineError, type Engine, type ExecuteContext } from '../engine';
 import type { FileSources } from '../files/service';
 import { compileQuery, type JoinedRelation } from '../sql/compile';
 import { joinedSources, type ResolvedJoin } from '../sql/joins';
+import { compileCustomSql, sqlErrorMessage, toCustomResult, type SqlQuery, type SqlSourceRelation } from '../sql/custom';
 import { duckdb } from '../sql/dialect';
 import { toQueryResult } from '../sql/result';
 import type { DuckDBRuntime } from './runtime';
@@ -24,6 +25,7 @@ export class DuckDBFileEngine implements Engine {
     // check for Snowflake-stored uploads too: the table name never comes from the client.
     const record = await this.files.find(ctx.teamId, source.ref);
     if (!record) throw new EngineError('unknown_source', `File source "${source.ref}" was not found.`);
+    if (typeof query.sql === 'string') return this.executeSql(query, ctx);
     // Joined uploads: the same team-scoped lookup for each one.
     const others = await Promise.all(
       joinedSources(query, source).map(async ({ id, source: js }) => {
@@ -55,4 +57,34 @@ export class DuckDBFileEngine implements Engine {
     const rows = await this.runtime.query(compiled.sql, compiled.params, ctx.signal);
     return toQueryResult(compiled, rows);
   }
+
+  /**
+   * Custom SQL (spec 1.4) over local uploads, in a sandboxed DuckDB that can read only the team's
+   * uploads the SQL names. Uploads stored in Snowflake are refused: they are read with the shared
+   * uploads role, which can see every team's upload tables, so free SQL there would cross teams.
+   */
+  private async executeSql(query: SqlQuery, ctx: ExecuteContext): Promise<QueryResult> {
+    const sources: SqlSourceRelation[] = [];
+    const paths: string[] = [];
+    for (const { id, source } of query.sqlSources ?? []) {
+      const r = await this.files.find(ctx.teamId, source.ref);
+      if (!r) throw new EngineError('unknown_source', `File source "${source.ref}" (source "${id}") was not found.`);
+      if (r.storage === 'snowflake') {
+        throw new EngineError('custom_sql_unavailable', 'Custom SQL is not available on uploads stored in Snowflake yet. Use the visual query builder, or a Snowflake table.');
+      }
+      const relation = this.files.relation(r);
+      sources.push({ name: id, relation });
+      paths.push(...relation.params.filter((p): p is string => typeof p === 'string'));
+    }
+    const compiled = compileCustomSql(query, { dialect: duckdb, sources });
+    let out: Awaited<ReturnType<DuckDBRuntime['sandboxQuery']>>;
+    try {
+      out = await this.runtime.sandboxQuery(compiled.sql, compiled.params, { allowedPaths: paths, signal: ctx.signal });
+    } catch (error) {
+      if (ctx.signal.aborted) throw error;
+      throw new EngineError('sql_error', sqlErrorMessage(error));
+    }
+    return toCustomResult(compiled, query.columns ?? [], out.rows, out.columns);
+  }
 }
+

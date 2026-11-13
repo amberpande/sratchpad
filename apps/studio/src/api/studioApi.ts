@@ -1,5 +1,7 @@
 import type {
   ApiErrorBody,
+  DataResponseLine,
+  QueryResult,
   CreateShareBody,
   CreateShareResponse,
   Share,
@@ -330,6 +332,34 @@ export class StudioApi {
 
   deleteRefresh(dashboardId: string): Promise<void> {
     return this.request('DELETE', `/v1/dashboards/${encodeURIComponent(dashboardId)}/refresh`);
+  }
+
+  /**
+   * Runs one query of an unsaved draft and returns its result (custom SQL "Run and detect columns").
+   * Uses the editor-only preview route; nothing is saved.
+   */
+  async runDraftQuery(spec: unknown, queryId: string): Promise<QueryResult> {
+    const response = await this.fetchImpl(`${this.apiUrl}/v1/preview/data`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({ spec, queries: [queryId] }),
+    }).catch((error: Error) => {
+      throw new ApiError(0, 'network_error', `Can't reach the BI API (${error.message}).`);
+    });
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}.`;
+      let code = 'http_error';
+      try {
+        const err = ((await response.json()) as ApiErrorBody).error;
+        if (err) ({ code, message } = err);
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(response.status, code, message);
+    }
+    const line = JSON.parse((await response.text()).trim().split('\n')[0] ?? '{}') as DataResponseLine;
+    if (!line.ok) throw new ApiError(200, line.error.code, line.error.message);
+    return line.result;
   }
 
   async metricCatalog(): Promise<CatalogMetric[]> {

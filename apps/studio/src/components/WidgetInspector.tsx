@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SPEC_VERSION, type QueryResult } from '@yourorg/bi-spec';
 import { issuesAt, type LocatedIssue } from '../draft/issues';
 import { columnNames, compactQuery, normalizeQuery, type NormalQuery } from '../draft/query';
 import type { DraftSpec, FieldInfo, WidgetDraft } from '../draft/types';
@@ -16,6 +17,8 @@ export interface WidgetInspectorProps {
   fields: FieldInfo[];
   dispatch: Dispatch;
   onRemove: () => void;
+  /** Runs one query of a draft spec (custom SQL "Run and detect columns"). */
+  runDraftQuery?: (spec: unknown, queryId: string) => Promise<QueryResult>;
 }
 
 type TableColumn = { field: string; label?: string; format?: string; align?: string };
@@ -239,10 +242,10 @@ function OptionEditor({
   );
 }
 
-const QUERY_FIELDS = /^query\.(dimensions|measures|filters|orderBy|limit)(\.|$)/;
+const QUERY_FIELDS = /^query\.(dimensions|measures|filters|orderBy|limit|sql|columns)(\.|$)/;
 const under = (local: string, path: string) => local === path || local.startsWith(`${path}.`);
 
-export function WidgetInspector({ draft, widgetId, issues, fields, dispatch, onRemove }: WidgetInspectorProps) {
+export function WidgetInspector({ draft, widgetId, issues, fields, dispatch, onRemove, runDraftQuery }: WidgetInspectorProps) {
   const widget = draft.widgets[widgetId]!;
   const info = widgetTypeInfo(widget.type);
   const queryId = widget.query;
@@ -326,7 +329,23 @@ export function WidgetInspector({ draft, widgetId, issues, fields, dispatch, onR
                   </button>
                 </p>
               )}
-              <QueryEditor queryId={queryId} query={query} fields={fields} issues={issues} onChange={setQuery} />
+              <QueryEditor
+                queryId={queryId}
+                query={query}
+                fields={fields}
+                issues={issues}
+                onChange={setQuery}
+                onRun={
+                  runDraftQuery &&
+                  ((q) => {
+                    // Just this query, without declared columns (so every column comes back) or filters:
+                    // the rest of the draft may not be valid yet while columns are being declared.
+                    const { columns: _c, filters: _f, ...rest } = compactQuery({ ...q, filters: [] });
+                    const spec = { specVersion: SPEC_VERSION, id: draft.id, title: draft.title || 'Draft', dataSources: draft.dataSources, queries: { [queryId]: { ...rest, limit: 200 } }, widgets: {}, layout: [], params: {} };
+                    return runDraftQuery(spec, queryId);
+                  })
+                }
+              />
             </>
           )}
           {info && info.slots.length > 0 && (

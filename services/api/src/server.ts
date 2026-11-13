@@ -71,6 +71,7 @@ const data = createDataLayer({
   fileRegistry,
   snowflake: config.snowflake,
   snowflakeUploads: config.snowflakeUploads,
+  snowflakePrivilegedRoles: [config.snowflakeApp?.role].filter((r): r is string => !!r),
 });
 
 // Result cache: Redis when configured (shared by replicas); otherwise in-process. A Redis that is
@@ -110,7 +111,12 @@ const assistant = config.assistant.enabled
   : null;
 
 // Shared by the data routes and the platform jobs (subscriptions, alerts, refresh, export).
-const queryServices: QueryServices = { cache, cacheTtlSeconds: config.cacheTtlSeconds, gate: new QueryGate(config.maxConcurrentQueries, config.maxQueuedQueries) };
+const queryServices: QueryServices = {
+  cache,
+  cacheTtlSeconds: config.cacheTtlSeconds,
+  gate: new QueryGate(config.maxConcurrentQueries, config.maxQueuedQueries),
+  customSql: config.customSql,
+};
 
 // Platform features: comments, favorites, usage, subscriptions, alerts, refresh, metric catalog.
 const viewerBaseUrl = config.viewerUrl ?? (config.publicHosts[0] ? `https://${config.publicHosts[0]}/view/` : undefined);

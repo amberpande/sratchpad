@@ -7,6 +7,7 @@ import type { Metrics } from '../obs/metrics';
 import { resultCacheKey, type ResultCache } from './cache';
 import { expandMetrics, type MetricCatalog } from './metrics';
 import { attachJoinSources } from './sql/joins';
+import { mentionedSources, type SqlQuery } from './sql/custom';
 import { EngineError, type Engine, type EngineRegistry } from './engine';
 
 /** Phase 5 hardening shared by every query: result cache, per-team concurrency, metrics. */
@@ -20,6 +21,23 @@ export interface QueryServices {
   metricCatalog?: MetricCatalog;
   /** Row-level security policies. Default: BI_RLS_POLICIES from the environment (never "none" by omission). */
   rls?: RlsPolicies;
+  /** Custom SQL queries (spec 1.4, BI_CUSTOM_SQL). Default true; false refuses them on every path. */
+  customSql?: boolean;
+}
+
+/**
+ * Custom SQL can read any table the engine's role sees, not just the declared source, so row-level
+ * security cannot be applied to it. It is refused for a principal that any of the team's policies
+ * for that engine type would filter (fail closed); "*" (all rows) on every such policy passes.
+ */
+function customSqlRowAccess(policies: RlsPolicies, teamId: string, principal: Principal | undefined, engineType: string): string | null {
+  for (const rule of policies[teamId] ?? []) {
+    if (rule.source?.type !== undefined && rule.source.type !== engineType) continue;
+    if (!principal?.attributes?.[rule.attribute]?.includes('*')) {
+      return 'Row-level security applies to this team, so custom SQL queries are not available here. Use the visual query builder.';
+    }
+  }
+  return null;
 }
 
 /** A per-request variant of a saved query, derived only from author-declared config (validated by the caller). */
@@ -193,7 +211,17 @@ export async function runQuery(queryId: string, ctx: RunContext): Promise<DataRe
   } catch {
     return fail('rls_misconfigured', 'Row-level security is misconfigured on this server, so no data is shown.');
   }
-  const access = rowAccess(policies, ctx.teamId, ctx.principal, source);
+  if (typeof resolved.sql === 'string') {
+    if (ctx.services?.customSql === false) return fail('custom_sql_disabled', 'Custom SQL queries are turned off on this server (BI_CUSTOM_SQL).');
+    const denied = customSqlRowAccess(policies, ctx.teamId, ctx.principal, source.type);
+    if (denied) return fail('rls_denied', denied);
+    // The dashboard sources the SQL names (by id), resolved by the engine under the team's access.
+    const sameEngine = Object.entries(ctx.dashboard.dataSources).filter(([, ds]) => ds.type === source.type);
+    const ids = new Set(mentionedSources(resolved.sql, sameEngine.map(([id]) => id)));
+    const sqlQuery: SqlQuery = { ...resolved, sqlSources: sameEngine.filter(([id]) => ids.has(id)).map(([id, ds]) => ({ id, source: { type: ds.type, ref: ds.ref } })) };
+    resolved = sqlQuery;
+  }
+  const access = typeof resolved.sql === 'string' ? ({ ok: true, filters: [] } as const) : rowAccess(policies, ctx.teamId, ctx.principal, source);
   if (!access.ok) return fail('rls_denied', access.message);
   if (access.filters.length) resolved = { ...resolved, filters: [...resolved.filters, ...access.filters] };
   // Joined sources: row-level security can only filter the primary source today, so a join with a
@@ -208,7 +236,7 @@ export async function runQuery(queryId: string, ctx: RunContext): Promise<DataRe
   resolved = attachJoinSources(resolved, ctx.dashboard.dataSources);
 
   try {
-    if (ctx.services?.metricCatalog) resolved = expandMetrics(resolved, await ctx.services.metricCatalog.get(ctx.teamId));
+    if (ctx.services?.metricCatalog && typeof resolved.sql !== 'string') resolved = expandMetrics(resolved, await ctx.services.metricCatalog.get(ctx.teamId));
     const result = await cachedExecute(engine, source, resolved, ctx, signal);
     // Every engine reads live, so the data is as of this request. Engines (or a result cache)
     // that know better set asOf themselves.

@@ -10,6 +10,7 @@ import {
   type Join,
   type MetricRef,
   type QueryInput,
+  type SqlColumn,
   type TimeGrain,
   type TopN,
   type WindowCalc,
@@ -36,6 +37,9 @@ export interface NormalQuery {
   topN?: TopN;
   joins?: Join[];
   metrics?: MetricRef[];
+  // Spec 1.4: custom SQL (replaces dimensions/measures/calcs/…) and its declared result columns.
+  sql?: string;
+  columns?: SqlColumn[];
 }
 
 /** The spec 1.3 query fields edited in the "Calculations" section. */
@@ -57,6 +61,8 @@ export function normalizeQuery(q: QueryInput | undefined): NormalQuery {
     ...(q?.topN ? { topN: q.topN as TopN } : {}),
     ...(Array.isArray(q?.joins) ? { joins: q.joins as Join[] } : {}),
     ...(Array.isArray(q?.metrics) ? { metrics: q.metrics as MetricRef[] } : {}),
+    ...(typeof q?.sql === 'string' ? { sql: q.sql } : {}),
+    ...(Array.isArray(q?.columns) ? { columns: q.columns as SqlColumn[] } : {}),
   };
 }
 
@@ -74,6 +80,8 @@ export function compactQuery(q: NormalQuery): QueryInput {
     ...(q.topN ? { topN: q.topN } : {}),
     ...(q.joins?.length ? { joins: q.joins } : {}),
     ...(q.metrics?.length ? { metrics: q.metrics } : {}),
+    ...(q.sql !== undefined ? { sql: q.sql } : {}),
+    ...(q.sql !== undefined && q.columns?.length ? { columns: q.columns } : {}),
   };
 }
 
@@ -84,7 +92,7 @@ export function columnNames(q: QueryInput | undefined): { all: string[]; dimensi
     all: cols.map((c) => c.name),
     dimensions: cols.filter((c) => c.role === 'dimension').map((c) => c.name),
     measures: cols.filter((c) => c.role === 'measure').map((c) => c.name),
-    time: cols.filter((c) => c.grain).map((c) => c.name),
+    time: [...cols.filter((c) => c.grain).map((c) => c.name), ...(n.sql !== undefined ? (n.columns ?? []).filter((c) => c.type === 'time').map((c) => c.name) : [])],
   };
 }
 
@@ -267,4 +275,43 @@ export function starterQuery(type: string, sourceId: string, fields: FieldInfo[]
     q = { ...q, orderBy: [{ field: measureAlias(q.measures[0]!), dir: 'desc' }] };
   }
   return q;
+}
+
+/**
+ * Switches a query to custom SQL (spec 1.4). The visual fields are dropped; a starting SELECT is
+ * written from them so the author edits rather than starts blank. Filters, sort and limit stay.
+ */
+export function toSqlQuery(q: NormalQuery, sourceId: string): NormalQuery {
+  const dims = q.dimensions.map((d) => (d.grain ? `date_trunc('${d.grain}', ${d.field}) AS ${d.as ?? d.field}` : d.as ? `${d.field} AS ${d.as}` : d.field));
+  const measures = q.measures.map((m) => `${aggSql(m.agg, m.field)} AS ${measureAlias(m)}`);
+  const select = [...dims, ...measures];
+  const sql = select.length
+    ? `SELECT ${select.join(', ')}\nFROM ${sourceId}${dims.length && measures.length ? `\nGROUP BY ${dims.map((_, i) => i + 1).join(', ')}` : ''}`
+    : `SELECT *\nFROM ${sourceId}`;
+  return { source: q.source, dimensions: [], measures: [], filters: [], orderBy: [], ...(q.limit !== undefined ? { limit: q.limit } : {}), sql, columns: [] };
+}
+
+const PCT: Partial<Record<Aggregation, number>> = { p25: 0.25, p75: 0.75, p90: 0.9 };
+/** SQL both DuckDB and Snowflake accept for an aggregation (a starting point the author edits). */
+function aggSql(agg: Aggregation, field: string): string {
+  if (field === '*') return 'count(*)';
+  if (agg === 'count_distinct') return `count(DISTINCT ${field})`;
+  const p = PCT[agg];
+  if (p !== undefined) return `percentile_cont(${p}) WITHIN GROUP (ORDER BY ${field})`;
+  return `${agg}(${field})`;
+}
+
+/** Back to the visual builder: drops the SQL and its columns. */
+export function toVisualQuery(q: NormalQuery): NormalQuery {
+  return { source: q.source, dimensions: [], measures: [], filters: [], orderBy: [], ...(q.limit !== undefined ? { limit: q.limit } : {}) };
+}
+
+/** Declared columns from a run of the SQL: numbers become measures (unless they were declared otherwise), the rest dimensions. */
+export function detectedColumns(result: { columns: Array<{ name: string; type: string }> }, previous: SqlColumn[] = []): SqlColumn[] {
+  return result.columns.map((c) => {
+    const before = previous.find((p) => p.name === c.name);
+    const type = (['string', 'number', 'time', 'boolean'] as const).find((t) => t === c.type) ?? 'string';
+    const role = before?.role ?? (type === 'number' ? 'measure' : 'dimension');
+    return { name: c.name, role, ...(role === 'dimension' ? { type } : {}) };
+  });
 }

@@ -153,6 +153,11 @@ export function crossFilterFields(dashboard: ValidDashboardLike, queryId: string
     if (grain) grains.add(grain);
     out.set(field, grains);
   };
+  // Custom SQL (1.4): only its own declared dimension columns, which is what its outer WHERE can filter.
+  if (typeof (q as { sql?: unknown }).sql === 'string') {
+    for (const c of (q as { columns?: Array<{ name: string; role: string }> }).columns ?? []) if (c.role === 'dimension') add(c.name);
+    return out;
+  }
   for (const other of Object.values(dashboard.queries)) {
     if (!sameSource(dashboard.dataSources[other.source], source)) continue;
     for (const d of other.dimensions) add(d.field, d.grain);

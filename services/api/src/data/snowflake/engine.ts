@@ -4,6 +4,7 @@ import { buildProfile, statsFromSql } from '../profile';
 import type { SourceProvider } from '../sources';
 import { compileQuery, type JoinedRelation, type Relation } from '../sql/compile';
 import { joinedSources } from '../sql/joins';
+import { compileCustomSql, toCustomResult, type SqlQuery, type SqlSourceRelation } from '../sql/custom';
 import { quoteIdent, snowflake, snowflakeKind, type ColumnKind } from '../sql/dialect';
 import { toQueryResult } from '../sql/result';
 import { teamSettings, type SnowflakeConfig } from './config';
@@ -45,6 +46,12 @@ export interface SnowflakeEngineOptions {
   cacheTtlMs?: number;
   /** How long profiles are cached per team. */
   profileTtlMs?: number;
+  /**
+   * Custom SQL (spec 1.4) can read anything its role can, so it runs only under a team role that is
+   * set explicitly and is none of these (the app store and uploads roles, which can read every team's
+   * records). `false` refuses custom SQL on this engine entirely (the uploads engine).
+   */
+  customSql?: false | { privilegedRoles: string[] };
 }
 
 export class SnowflakeEngine implements Engine, SourceProvider {
@@ -98,6 +105,7 @@ export class SnowflakeEngine implements Engine, SourceProvider {
   }
 
   async execute(source: DataSource, query: Query, ctx: ExecuteContext): Promise<QueryResult> {
+    if (typeof query.sql === 'string') return this.executeSql(query, ctx);
     const resolved = await this.resolve(ctx.teamId, source.ref, ctx.signal);
     if (!resolved) throw new EngineError('unknown_source', `Snowflake table "${source.ref}" was not found or is not granted to this team.`);
     // Joined tables: resolved under the same team role, so a table the team cannot see is "not found".
@@ -110,6 +118,41 @@ export class SnowflakeEngine implements Engine, SourceProvider {
     const compiled = compileQuery(query, { dialect: snowflake, relation: { sql: tableSql(resolved.table), params: [] }, columns: resolved.columns, joined });
     const rows = await this.driver.execute(ctx.teamId, compiled.sql, compiled.params, ctx.signal);
     return toQueryResult(compiled, rows);
+  }
+
+  /**
+   * Custom SQL (spec 1.4): runs under the team's role, so Snowflake grants decide what it can read
+   * (any granted table by its full name, or a dashboard source by its id). Give team roles SELECT-only
+   * grants (docs/DEPLOYMENT.md). Sessions allow one statement (MULTI_STATEMENT_COUNT = 1).
+   */
+  private async executeSql(query: SqlQuery, ctx: ExecuteContext): Promise<QueryResult> {
+    const guard = this.options.customSql ?? { privilegedRoles: [] };
+    if (guard === false) throw new EngineError('custom_sql_unavailable', 'Custom SQL is not available on this data.');
+    const role = teamSettings(this.config, ctx.teamId).role;
+    if (!role || guard.privilegedRoles.some((r) => r.toUpperCase() === role.toUpperCase())) {
+      throw new EngineError(
+        'custom_sql_unavailable',
+        "Custom SQL on Snowflake needs this team to run under its own read-only role (SNOWFLAKE_TEAM_CONFIG), separate from the app's roles. Ask your admin, or use the visual query builder.",
+      );
+    }
+    const sources: SqlSourceRelation[] = [];
+    for (const { id, source } of query.sqlSources ?? []) {
+      const table = parseTableRef(source.ref);
+      if (!table || !(await this.columns(ctx.teamId, table, ctx.signal))) {
+        throw new EngineError('unknown_source', `Snowflake table "${source.ref}" (source "${id}") was not found or is not granted to this team.`);
+      }
+      sources.push({ name: id, relation: { sql: tableSql(table), params: [] } });
+    }
+    const compiled = compileCustomSql(query, { dialect: snowflake, sources });
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await this.driver.execute(ctx.teamId, compiled.sql, compiled.params, ctx.signal);
+    } catch (error) {
+      if (ctx.signal.aborted) throw error;
+      // The author's own SQL failed: show Snowflake's message (compilation errors name the problem).
+      throw new EngineError('sql_error', `Snowflake: ${(error as Error).message}`);
+    }
+    return toCustomResult(compiled, query.columns ?? [], rows);
   }
 
   /** Tables and views the team's role can see (SHOW reads metadata only; it uses no warehouse). */

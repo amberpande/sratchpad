@@ -1,7 +1,7 @@
-import { AGGREGATIONS, FILTER_OPS, MAX_QUERY_LIMIT, TIME_GRAINS, type Aggregation, type Filter, type FilterOp, type Scalar, type TimeGrain } from '@yourorg/bi-spec';
+import { AGGREGATIONS, FILTER_OPS, MAX_QUERY_LIMIT, SQL_COLUMN_TYPES, TIME_GRAINS, type Aggregation, type Filter, type FilterOp, type QueryResult, type Scalar, type SqlColumn, type TimeGrain } from '@yourorg/bi-spec';
 import { useEffect, useState, type DragEvent, type ReactNode } from 'react';
 import { issuesAt, type LocatedIssue } from '../draft/issues';
-import { addField, columnNames, compactQuery, EXTENSION_KEYS, type NormalQuery } from '../draft/query';
+import { addField, columnNames, compactQuery, detectedColumns, EXTENSION_KEYS, toSqlQuery, toVisualQuery, type NormalQuery } from '../draft/query';
 import type { FieldInfo } from '../draft/types';
 import { isFieldDrag, readFieldDrag } from './dnd';
 import { FieldTypeIcon } from './icons';
@@ -13,6 +13,8 @@ export interface QueryEditorProps {
   fields: FieldInfo[];
   issues: LocatedIssue[];
   onChange: (query: NormalQuery, coalesce?: string) => void;
+  /** Runs this query as a draft (custom SQL "Run and detect columns"); absent = no live backend. */
+  onRun?: (query: NormalQuery) => Promise<QueryResult>;
 }
 
 const AGG_LABEL: Record<Aggregation, string> = {
@@ -97,6 +99,102 @@ function AdvancedEditor({ query, onChange }: { query: NormalQuery; onChange: (q:
       {error && <p className="note small">{error}</p>}
       <p className="muted small">windows: running_total, percent_of_total, rank, moving_average, difference, percent_change · topN · joins · metrics (team catalog).</p>
     </div>
+  );
+}
+
+/**
+ * Custom SQL (spec 1.4): the statement, a run that fills the declared result columns, and the
+ * columns' roles. The server checks and wraps the SQL; this only edits it.
+ */
+function SqlSection({ query, issues, onChange, onRun, coalesceKey }: { query: NormalQuery; issues: LocatedIssue[]; onChange: QueryEditorProps['onChange']; onRun?: QueryEditorProps['onRun']; coalesceKey: (p: string) => string }) {
+  const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const columns = query.columns ?? [];
+  const setColumns = (next: SqlColumn[]) => onChange({ ...query, columns: next });
+  const run = async () => {
+    if (!onRun) return;
+    setRunning(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const result = await onRun(query);
+      setColumns(detectedColumns(result, columns));
+      setStatus(`${result.rows.length}${result.truncated ? '+' : ''} rows · ${result.columns.length} columns`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <section className="drop-section sql-section">
+      <header>
+        <h4>SQL</h4>
+      </header>
+      <textarea
+        className="sql-input"
+        aria-label="SQL"
+        rows={8}
+        spellCheck={false}
+        value={query.sql ?? ''}
+        placeholder={'SELECT region, SUM(amount) AS revenue\nFROM orders\nGROUP BY region'}
+        onChange={(e) => onChange({ ...query, sql: e.target.value }, coalesceKey('sql'))}
+      />
+      <IssueText issues={issuesAt(issues, 'query.sql')} />
+      <p className="muted small">
+        One SELECT. Name this dashboard&apos;s data sources by id (e.g. <code>FROM orders</code>); on Snowflake any table your team&apos;s role can read also works
+        (<code>DB.SCHEMA.TABLE</code>). Dashboard filters apply to the result columns.
+      </p>
+      <div className="q-row">
+        <button type="button" className="btn small" onClick={() => void run()} disabled={running || !onRun || !query.sql?.trim()}>
+          {running ? 'Running…' : 'Run and detect columns'}
+        </button>
+        {status && <span className="muted small">{status}</span>}
+      </div>
+      {error && (
+        <p className="note small" role="alert">
+          {error}
+        </p>
+      )}
+      <h4>Result columns</h4>
+      {!columns.length && <p className="drop-hint">Run the SQL to list its columns, then pick which are measures.</p>}
+      <ul>
+        {columns.map((c, i) => (
+          <li key={c.name}>
+            <div className="q-row">
+              <code className="grow">{c.name}</code>
+              <select
+                className="narrow"
+                aria-label={`Role of ${c.name}`}
+                value={c.role}
+                onChange={(e) => {
+                  const role = e.target.value as SqlColumn['role'];
+                  const { type, ...rest } = c;
+                  setColumns(replaceAt(columns, i, role === 'measure' ? { ...rest, role } : { ...rest, role, type: type ?? 'string' }));
+                }}
+              >
+                <option value="dimension">dimension</option>
+                <option value="measure">measure</option>
+              </select>
+              {c.role === 'dimension' && (
+                <select className="narrow" aria-label={`Type of ${c.name}`} value={c.type ?? 'string'} onChange={(e) => setColumns(replaceAt(columns, i, { ...c, type: e.target.value as SqlColumn['type'] }))}>
+                  {SQL_COLUMN_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button type="button" className="btn ghost icon tiny" onClick={() => setColumns(removeAt(columns, i))} aria-label={`Remove ${c.name}`}>
+                ×
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <IssueText issues={issuesAt(issues, 'query.columns')} />
+    </section>
   );
 }
 
@@ -244,7 +342,8 @@ function FilterRow({ filter, fields, onChange, onRemove, issues }: { filter: Fil
   );
 }
 
-export function QueryEditor({ queryId, query, fields, issues, onChange }: QueryEditorProps) {
+export function QueryEditor({ queryId, query, fields, issues, onChange, onRun }: QueryEditorProps) {
+  const isSql = query.sql !== undefined;
   const cols = columnNames(compactQuery(query));
   const isTime = (name: string) => fields.find((f) => f.name === name)?.kind === 'time';
   const add = (f: FieldInfo, as: 'dimension' | 'measure') => onChange(addField(query, f, as).query);
@@ -252,6 +351,17 @@ export function QueryEditor({ queryId, query, fields, issues, onChange }: QueryE
 
   return (
     <div className="query-editor">
+      <div className="segmented small" role="group" aria-label="Query mode">
+        <button type="button" aria-pressed={!isSql} onClick={() => isSql && (!query.sql?.trim() || window.confirm('Switch to the visual builder? The SQL is removed.')) && onChange(toVisualQuery(query))}>
+          Visual builder
+        </button>
+        <button type="button" aria-pressed={isSql} onClick={() => !isSql && onChange(toSqlQuery(query, query.source))}>
+          SQL
+        </button>
+      </div>
+      {isSql && <SqlSection query={query} issues={issues} onChange={onChange} onRun={onRun} coalesceKey={key} />}
+      {!isSql && (
+      <>
       <DropSection title="Dimensions" onDropField={(f) => add(f, 'dimension')} action={<AddFieldSelect label="Dimension" fields={fields} onPick={(f) => add(f, 'dimension')} />}>
         {query.dimensions.length === 0 && <p className="drop-hint">Drop a time or category field</p>}
         <ul>
@@ -422,6 +532,9 @@ export function QueryEditor({ queryId, query, fields, issues, onChange }: QueryE
           ))}
         </details>
       </DropSection>
+
+      </>
+      )}
 
       <DropSection
         title="Sort"

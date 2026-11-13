@@ -80,6 +80,10 @@ Index
 | [D-067](#d-067-platform-writes-share-the-per-team-writes-budget) | Platform writes share the per-team writes budget | Accepted |
 | [D-068](#d-068-llama-32-through-ollama-for-local-testing-only) | Llama 3.2 through Ollama for local testing only | Accepted |
 | [D-069](#d-069-effects-never-return-values-panels-behind-error-boundaries) | Effects never return values; Studio panels behind error boundaries | Accepted |
+| [D-070](#d-070-custom-sql-queries-for-developers-spec-14) | Custom SQL queries for developers (spec 1.4) | Accepted |
+| [D-071](#d-071-custom-sql-runs-wrapped-and-isolated-per-engine) | Custom SQL runs wrapped and isolated per engine | Accepted |
+| [D-072](#d-072-custom-sql-is-refused-where-row-level-security-applies) | Custom SQL is refused where row-level security applies | Accepted |
+| [D-073](#d-073-the-assistant-never-writes-custom-sql) | The assistant never writes custom SQL | Accepted |
 
 Open questions are listed [at the end](#open-questions).
 
@@ -666,6 +670,71 @@ Open questions are listed [at the end](#open-questions).
 - **Consequences:** Regression test `apps/studio/test/assistant-crash.test.tsx` (scrollIntoView returning a Promise;
   boundary recovery). Verified in headless Chrome against the running app with Llama 3.2.
 
+## D-070 Custom SQL queries for developers (spec 1.4)
+
+- **Date:** 2026-11-12 · **Status:** Accepted (owner's request). Amends the "SQL only from the spec" invariant.
+- **Context:** The owner wants developers to be able to write their own SQL for any chart, beyond what the visual
+  query builder expresses (D-034 rejected "free SQL snippets" inside calcs; this is a whole-query mode instead).
+- **Decision:** A query may carry `sql` (one SELECT, or WITH … SELECT, max 20,000 characters) and `columns` (the
+  result columns widgets bind to: `name`, `role` dimension/measure, optional `type` string/number/time/boolean)
+  instead of dimensions/measures/calcs/windows/topN/joins/metrics. Spec minor bump to **1.4** (additive). The query's
+  `source` picks the engine; the SQL names the dashboard's data sources by id (`FROM orders`), and on Snowflake any
+  table the team's role can read. Dashboard filters, cross-filters and the query's own filters apply to the result
+  columns; a filter bound to a column the SQL does not declare is a validation error. Editors write SQL in the
+  Studio's new **SQL** mode, which runs the draft and fills `columns` ("Run and detect columns"); viewers and share
+  tokens only ever run saved SQL, like every saved query. `BI_CUSTOM_SQL=on|off` (default on) turns it off on every path.
+- **Alternatives:** Saved SQL "data sources" (views) managed by an admin (safer, slower to iterate; still possible
+  with Snowflake views); SQL fragments inside the visual builder (injection-prone, D-034); templated `{{param}}`
+  placeholders in the SQL (deferred: filters apply to the result for now).
+- **Consequences:** Drill-down, measure switches, top-N, calcs and the metric catalog do not apply to SQL queries.
+  A filter on a column the SQL aggregated away cannot run (the validator says so). Charts read time columns
+  without a grain (axis labels show dates). Older renderers render 1.4 documents degraded (D-004).
+
+## D-071 Custom SQL runs wrapped and isolated per engine
+
+- **Date:** 2026-11-12 · **Status:** Accepted
+- **Context:** Free SQL from editors must not escape a team's data, change data, or run unbounded.
+- **Decision:** The server never runs the SQL as written. It checks for a single statement (dialect-aware: strings,
+  quoted names, comments) and runs it as a subquery of a statement it builds: dashboard sources as CTEs,
+  `SELECT <declared columns> FROM (<sql>) WHERE <filters as binds> ORDER BY … LIMIT <validated n + 1>`. Inside a
+  subquery anything but a query is a syntax error. Per engine:
+  - **Snowflake:** runs under the team's role, so Snowflake grants decide what it reads. It requires an explicit team
+    role that is not the app store role or the uploads role (those can read every team's records); otherwise
+    `custom_sql_unavailable`. Sessions are pinned to `MULTI_STATEMENT_COUNT = 1`. Team roles should be SELECT-only.
+  - **Local uploads and sample data:** a throwaway DuckDB per query with external access off, `allowed_paths`
+    limited to the team's referenced upload files, extension autoload off and configuration locked before the SQL
+    runs; prepared, so a second statement is refused. Error messages drop server file paths.
+  - **Uploads stored in Snowflake:** refused. They are read with the shared uploads role, which sees every team's
+    upload tables.
+- **Alternatives:** Parsing SQL into an AST and allow-listing (large, dialect-specific, still bypassable); a
+  per-team Snowflake role for uploads (more admin work; possible later to lift the uploads restriction).
+- **Consequences:** Snowflake custom SQL depends on admins giving each team its own read-only role
+  (`SNOWFLAKE_TEAM_CONFIG`). Statement timeout, per-team concurrency, row cap and result cache apply as for every
+  query. Verified against DuckDB live; the Snowflake path only with a fake driver.
+
+## D-072 Custom SQL is refused where row-level security applies
+
+- **Date:** 2026-11-12 · **Status:** Accepted
+- **Context:** Row-level security filters one source by a column (D-039..D-047). Free SQL can read any table the
+  role sees and can rename or aggregate the secured column, so filtering its result is not sound.
+- **Decision:** A custom SQL query is refused (`rls_denied`) for any principal that a team policy for that engine
+  type would filter. A principal with `*` (all rows) on every such policy may run it. Fail closed, like D-065.
+- **Alternatives:** Filtering the SQL's result by the secured column (bypassable); applying policies inside Snowflake
+  with row access policies (the right long-term answer; needs per-user Snowflake identity).
+- **Consequences:** Teams with row-level security use the visual builder (or Snowflake row access policies) until
+  SSO and per-user Snowflake identity exist.
+
+## D-073 The assistant never writes custom SQL
+
+- **Date:** 2026-11-12 · **Status:** Accepted
+- **Context:** The assistant edits drafts through JSON Patch; draft previews run immediately. SQL written by a model
+  from a prompt is harder to review than visual query fields.
+- **Decision:** Edits that add or change any query's `sql` or `columns` are rejected by the server (removing a SQL
+  query with its widget is allowed); the prompt tells the assistant to point developers to the SQL mode.
+- **Alternatives:** Letting the assistant draft SQL for review (useful; revisit with a "propose SQL" flow that the
+  developer applies explicitly).
+- **Consequences:** The assistant keeps building queries from dimensions, measures and calcs.
+
 ---
 
 ## Open questions
@@ -681,3 +750,5 @@ Open questions are listed [at the end](#open-questions).
 | Rename the `@yourorg` scope and `BI_*` prefix? | Owner | Deferred (D-028) |
 | Should scheduled jobs refresh the owner's row-level attributes instead of keeping them from creation? | Platform owner | Needs an identity source (SSO) or an expiry (D-063) |
 | Row-level security on joined sources | Platform owner | Joins with governed sources are refused today (D-065) |
+| Should custom SQL work with row-level security (Snowflake row access policies) and on uploads stored in Snowflake (per-team uploads role)? | Platform owner | Refused today (D-071, D-072) |
+| Should custom SQL take `{{param}}` placeholders (filter before aggregation)? | Product | Filters apply to the result today (D-070) |

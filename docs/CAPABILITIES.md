@@ -18,7 +18,7 @@ gaps listed in the previous version of this page (D-033, D-034 to D-067).
 | Filters and controls | Date range, select, **multi-select** (fixed or query-driven, cascading), **range**, **search** (contains / starts with / ends with), **measure switch** |
 | Interactivity | **Click to filter** other widgets, **drill-down** (hierarchies on time and dimensions, breadcrumb), **drill-through** (host apps), **tabs**, **mobile layout**, **click-to-sort** tables |
 | Formatting | Number formats (decimals, prefix/suffix, k/M/B, percent) per column; **conditional formatting** (rules or color scales) on tables and pivots; KPI **thresholds** and **▲/▼ comparison**; **reference lines and bands**, **annotations**, **tooltip fields**, **table sparklines**; theme (mode, palette, accent, backgrounds, card style, density, radius, font), per-widget style, gridlines, data labels, axis titles and ranges |
-| Authoring | Drag-and-drop Studio, live preview, versions, conflicts, JSON view, AI suggestions, chat assistant, editors for calcs, params, tabs, drill, reference lines, conditional formats |
+| Authoring | Drag-and-drop Studio, live preview, versions, conflicts, JSON view, AI suggestions, chat assistant, editors for calcs, params, tabs, drill, reference lines, conditional formats; **custom SQL for any chart** (spec 1.4, developers) |
 | Sharing and security | Embed with one component; read-only app tokens and viewer links (with row-level attributes); team viewer role; **row-level security per user** (fail closed) |
 | Platform | **Export** widget CSV/PNG, dashboard **print/PDF**, server CSV export; **scheduled email subscriptions** (KPIs, link, CSV); **data alerts** (email, signed webhooks); **scheduled refresh** (cache warming); **comments**, **favorites**, **usage analytics** |
 
@@ -29,10 +29,11 @@ gaps listed in the previous version of this page (D-033, D-034 to D-067).
 | Missing | Example |
 | --- | --- |
 | Level-of-detail expressions (Tableau FIXED / INCLUDE / EXCLUDE) | Average order value per customer, then averaged by region |
-| Row-level calculated fields (expressions over columns before aggregation; string and date functions) | `amount * fx_rate`, `upper(region)` (bins and buckets are the only row-level calcs) |
+| Row-level calculated fields in the visual builder (expressions over columns before aggregation; string and date functions) | `amount * fx_rate`, `upper(region)` (bins and buckets are the only visual row-level calcs; custom SQL can do it) |
 | Calendar-aware period comparison | "Same month last year" when months are missing (window offsets count rows) |
 | Joins across engines; blending; Qlik's associative model | An upload joined with a Snowflake table |
 | Joins with row-secured sources | Refused today (D-065) |
+| Custom SQL with row-level security, on uploads stored in Snowflake, or with `{{param}}` placeholders | Refused / not built (D-070 to D-072) |
 | Forecasting, trend lines, clustering | Revenue forecast band |
 | Sets and groups as reusable objects | "Top customers" set used across sheets |
 
